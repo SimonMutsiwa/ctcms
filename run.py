@@ -18,6 +18,15 @@ from config import config
 env = os.environ.get('FLASK_ENV', 'development')
 app = create_app(config[env])
 
+@app.route('/init-db')
+def init_db():
+    try:
+        from __init__ import db
+        db.create_all()
+        return "✅ Database tables created successfully! You can now remove this endpoint."
+    except Exception as e:
+        return f"❌ Error: {e}"
+
 # Create CLI
 cli = FlaskGroup(create_app=lambda: app)
 
