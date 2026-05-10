@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETR Analysis - CTCMS</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .etr-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .company-selector {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .company-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .company-card {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+        
+        .company-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: #eef2ff;
+        }
+        
+        .company-card.selected {
+            border-color: #1a472a;
+            background: #e6f9e6;
+        }
+        
+        .company-name {
+            font-weight: 600;
+            font-size: 16px;
+            color: #1a2c3e;
+        }
+        
+        .company-meta {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 5px;
+        }
+        
+        .year-selector {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .year-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .year-badge:hover {
+            background: #1a472a;
+            color: white;
+        }
+        
+        .year-badge.active {
+            background: #1a472a;
+            color: white;
+        }
+        
+        .analysis-container {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        
+        .metric-card {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .risk-high { color: #dc2626; }
+        .risk-medium { color: #e67e22; }
+        .risk-low { color: #16a34a; }
+        
+        .indicator-item {
+            padding: 10px;
+            border-left: 3px solid;
+            margin-bottom: 8px;
+            background: #f8fafc;
+            border-radius: 6px;
+        }
+        
+        .indicator-high { border-left-color: #dc2626; background: #fee2e2; }
+        .indicator-medium { border-left-color: #e67e22; background: #fff3e0; }
+        .indicator-low { border-left-color: #16a34a; background: #e6f9e6; }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+        
+        .etr-chart {
+            max-height: 300px;
+            margin: 20px 0;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
+        
+        .error-message {
+            text-align: center;
+            padding: 20px;
+            color: #dc2626;
+            background: #fee2e2;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar" id="sidebar">
+            <div class="logo-container">
+                <div class="logo">
+                    <img src="/static/images/logos/zimra-logo.webp" alt="ZIMRA Logo" class="zimra-logo"
+                         onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'logo-icon\'><i class=\'fas fa-chart-line\'></i></div><div class=\'logo-text\'><span class=\'logo-title\'>CTCMS</span><span class=\'logo-subtitle\'>ZIMRA</span></div>'">
+                    <div class="logo-text">
+                        <span class="logo-title">CTCMS</span>
+                        <span class="logo-subtitle">Zimbabwe Revenue Authority</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu">
+                <a href="/" class="nav-item"><i class="fas fa-tachometer-alt"></i><span>Dashboard</span></a>
+                <a href="/etr-analysis" class="nav-item active"><i class="fas fa-percent"></i><span>ETR Analysis</span></a>
+                <a href="#" class="nav-item"><i class="fas fa-chart-pie"></i><span>Risk Scores</span></a>
+                <a href="#" class="nav-item"><i class="fas fa-brain"></i><span>Behavioral Alerts</span></a>
+                <a href="#" class="nav-item"><i class="fas fa-gavel"></i><span>Audit Cases</span></a>
+                <a href="#" class="nav-item"><i class="fas fa-file-alt"></i><span>Reports</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <div class="user-details">
+                        <span class="user-name">Forensic Accountant</span>
+                        <span class="user-role">ZIMRA</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-bar">
+                <div style="display: flex; align-items: center;">
+                    <button class="mobile-menu-toggle" id="mobileMenuToggle">☰</button>
+                    <div class="page-title">
+                        <h1>ETR Analysis & Forensic Accounting</h1>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <div class="date-display" id="current-date"></div>
+                    <button class="btn-refresh" onclick="loadCompanies()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="etr-container">
+                <!-- Company Selector -->
+                <div class="company-selector">
+                    <h3><i class="fas fa-building"></i> Select Company for ETR Analysis</h3>
+                    <div id="companies-loading" class="loading">Loading companies...</div>
+                    <div id="companies-grid" class="company-grid"></div>
+                </div>
+
+                <!-- Analysis Results -->
+                <div id="analysis-container" class="analysis-container" style="display: none;">
+                    <div id="analysis-content"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let selectedCompanyId = null;
+        let selectedYear = null;
+        let companiesData = [];
+        let etrChart = null;
+
+        // Set current date
+        function setCurrentDate() {
+            const today = new Date();
+            const dateElement = document.getElementById('current-date');
+            if (dateElement) {
+                dateElement.innerHTML = today.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                });
+            }
+        }
+
+        // Mobile menu
+        function initMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const mobileToggle = document.getElementById('mobileMenuToggle');
+            if (mobileToggle) {
+                mobileToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+            }
+        }
+
+        // Load companies on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            setCurrentDate();
+            initMobileMenu();
+            loadCompanies();
+        });
+
+        async function loadCompanies() {
+            const grid = document.getElementById('companies-grid');
+            const loading = document.getElementById('companies-loading');
+            
+            loading.style.display = 'block';
+            grid.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/v1/governance/etr/companies');
+                const companies = await response.json();
+                companiesData = companies;
+                
+                loading.style.display = 'none';
+                
+                if (!companies || companies.length === 0) {
+                    grid.innerHTML = '<p class="no-data">No companies found. Please ensure test data is loaded.</p>';
+                    return;
+                }
+                
+                grid.innerHTML = companies.map(company => `
+                    <div class="company-card" onclick="selectCompany(${company.id})" data-id="${company.id}">
+                        <div class="company-name">${escapeHtml(company.company_name)}</div>
+                        <div class="company-meta">
+                            <i class="fas fa-chart-line"></i> ${company.industry || 'N/A'}
+                            <br>
+                            <i class="fas fa-calendar"></i> Available: ${company.available_years.join(', ') || 'None'}
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading companies:', error);
+                loading.innerHTML = '<p class="error-message">Error loading companies. Please check if the server is running.</p>';
+            }
+        }
+
+        function selectCompany(companyId) {
+            selectedCompanyId = companyId;
+            const company = companiesData.find(c => c.id === companyId);
+            
+            // Update UI
+            document.querySelectorAll('.company-card').forEach(card => {
+                card.classList.remove('selected');
+                if (card.getAttribute('data-id') == companyId) {
+                    card.classList.add('selected');
+                }
+            });
+            
+            // Show year selector
+            showYearSelector(company);
+        }
+
+        function showYearSelector(company) {
+            const analysisContainer = document.getElementById('analysis-container');
+            const analysisContent = document.getElementById('analysis-content');
+            
+            if (!company.available_years || company.available_years.length === 0) {
+                analysisContent.innerHTML = '<p class="no-data">No tax return data available for this company.</p>';
+                analysisContainer.style.display = 'block';
+                return;
+            }
+            
+            analysisContent.innerHTML = `
+                <div class="year-selector">
+                    <label><strong>Select Fiscal Year:</strong></label>
+                    <div id="year-buttons">
+                        ${company.available_years.map(year => `
+                            <span class="year-badge" onclick="loadAnalysis(${company.id}, ${year})">${year}</span>
+                        `).join('')}
+                    </div>
+                </div>
+                <div id="analysis-details" style="margin-top: 20px;"></div>
+            `;
+            
+            analysisContainer.style.display = 'block';
+        }
+
+        async function loadAnalysis(companyId, year) {
+            selectedYear = year;
+            
+            // Update active year badge
+            document.querySelectorAll('.year-badge').forEach(badge => {
+                badge.classList.remove('active');
+                if (badge.innerText == year) badge.classList.add('active');
+            });
+            
+            const detailsDiv = document.getElementById('analysis-details');
+            detailsDiv.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Calculating ETR with forensic metrics...</div>';
+            
+            try {
+                const response = await fetch(`/api/v1/governance/etr/calculate/${companyId}/${year}`);
+                const data = await response.json();
+                
+                if (response.ok && !data.error) {
+                    displayAnalysis(data);
+                } else {
+                    detailsDiv.innerHTML = `<p class="error-message">Error: ${data.error || 'Unable to calculate ETR'}</p>`;
+                }
+            } catch (error) {
+                console.error('Error loading analysis:', error);
+                detailsDiv.innerHTML = '<p class="error-message">Error loading analysis. Please check the server connection.</p>';
+            }
+        }
+
+        function displayAnalysis(data) {
+            const detailsDiv = document.getElementById('analysis-details');
+            const riskClass = data.risk_assessment?.risk_color || 'green';
+            
+            detailsDiv.innerHTML = `
+                <div style="margin-bottom: 20px;">
+                    <h3>${escapeHtml(data.taxpayer.name)} - ${data.fiscal_year}</h3>
+                    <p><i class="fas fa-building"></i> ${data.taxpayer.industry} | <i class="fas fa-chart-line"></i> TIN: ${data.taxpayer.tin}</p>
+                </div>
+                
+                <!-- ETR Summary Cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                    <div class="metric-card">
+                        <div class="metric-label">Statutory ETR</div>
+                        <div class="metric-value">${data.etr_calculations.statutory_etr}%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Actual ETR</div>
+                        <div class="metric-value ${data.etr_calculations.actual_etr < data.etr_calculations.statutory_etr ? 'risk-high' : 'risk-low'}">
+                            ${data.etr_calculations.actual_etr}%
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Cash ETR</div>
+                        <div class="metric-value">${data.etr_calculations.cash_etr}%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Industry Benchmark</div>
+                        <div class="metric-value">${data.etr_calculations.industry_benchmark_etr}%</div>
+                    </div>
+                </div>
+                
+                <!-- Variance Analysis -->
+                <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
+                    <h4><i class="fas fa-chart-line"></i> Variance Analysis</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
+                        <div><strong>Absolute Variance:</strong> ${data.variance_analysis.absolute_variance > 0 ? '+' : ''}${data.variance_analysis.absolute_variance}%</div>
+                        <div><strong>Relative Variance:</strong> ${data.variance_analysis.relative_variance > 0 ? '+' : ''}${data.variance_analysis.relative_variance}%</div>
+                        <div><strong>Industry Variance:</strong> ${data.variance_analysis.industry_variance > 0 ? '+' : ''}${data.variance_analysis.industry_variance}%</div>
+                        <div><strong>Cash ETR Variance:</strong> ${data.variance_analysis.cash_etr_variance}%</div>
+                    </div>
+                </div>
+                
+                <!-- Forensic Accounting Metrics -->
+                <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
+                    <h4><i class="fas fa-balance-scale"></i> Forensic Accounting Metrics</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 10px;">
+                        <div><strong>ETR Gap:</strong> ${data.forensic_metrics.etr_gap}%</div>
+                        <div><strong>Book-Tax Difference:</strong> $${data.forensic_metrics.book_tax_difference.toLocaleString()}</div>
+                        <div><strong>Permanent BTD Ratio:</strong> ${data.forensic_metrics.permanent_btd_ratio}%</div>
+                        <div><strong>Temporary BTD:</strong> $${data.forensic_metrics.temporary_btd.toLocaleString()}</div>
+                        <div><strong>Tax Avoidance Score:</strong> ${data.forensic_metrics.tax_avoidance_score}%</div>
+                        <div><strong>Trend Percentage:</strong> ${data.forensic_metrics.trend_percentage > 0 ? '+' : ''}${data.forensic_metrics.trend_percentage}%</div>
+                    </div>
+                </div>
+                
+                <!-- Financial Data -->
+                <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
+                    <h4><i class="fas fa-dollar-sign"></i> Financial Data</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
+                        <div><strong>Total Income:</strong> $${data.financial_data.total_income.toLocaleString()}</div>
+                        <div><strong>Taxable Income:</strong> $${data.financial_data.taxable_income.toLocaleString()}</div>
+                        <div><strong>Accounting Profit:</strong> $${data.financial_data.accounting_profit.toLocaleString()}</div>
+                        <div><strong>Tax Liability:</strong> $${data.financial_data.tax_liability.toLocaleString()}</div>
+                        <div><strong>Total Payments:</strong> $${data.financial_data.total_payments.toLocaleString()}</div>
+                    </div>
+                </div>
+                
+                <!-- Trend Analysis Chart -->
+                ${data.trend_analysis.historical_etrs && data.trend_analysis.historical_etrs.length > 0 ? `
+                <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
+                    <h4><i class="fas fa-chart-line"></i> Historical ETR Trend</h4>
+                    <canvas id="etr-trend-chart" class="etr-chart"></canvas>
+                </div>
+                ` : ''}
+                
+                <!-- Risk Assessment -->
+                <div style="border-left: 4px solid ${data.risk_assessment.risk_color === 'red' ? '#dc2626' : data.risk_assessment.risk_color === 'orange' ? '#e67e22' : '#16a34a'}; background: ${data.risk_assessment.risk_color === 'red' ? '#fee2e2' : data.risk_assessment.risk_color === 'orange' ? '#fff3e0' : '#e6f9e6'}; padding: 15px; border-radius: 8px;">
+                    <h4><i class="fas fa-shield-alt"></i> Risk Assessment</h4>
+                    <div><strong>Risk Score:</strong> ${data.risk_assessment.risk_score}/100</div>
+                    <div><strong>Risk Level:</strong> <span class="risk-${data.risk_assessment.risk_color}">${data.risk_assessment.risk_level}</span></div>
+                    <div><strong>Recommendation:</strong> ${data.risk_assessment.recommendation}</div>
+                    ${data.risk_assessment.risk_indicators && data.risk_assessment.risk_indicators.length > 0 ? `
+                    <div style="margin-top: 10px;">
+                        <strong>Risk Indicators:</strong>
+                        <ul style="margin-top: 5px;">
+                            ${data.risk_assessment.risk_indicators.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            // Create trend chart if historical data exists
+            if (data.trend_analysis.historical_etrs && data.trend_analysis.historical_etrs.length > 0) {
+                createTrendChart(data.trend_analysis.historical_etrs, data.fiscal_year, data.etr_calculations.actual_etr);
+            }
+        }
+
+        function createTrendChart(historicalData, currentYear, currentETR) {
+            const canvas = document.getElementById('etr-trend-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            
+            if (etrChart) etrChart.destroy();
+            
+            const years = [...historicalData.map(h => h.year), currentYear];
+            const etrs = [...historicalData.map(h => h.etr), currentETR];
+            
+            etrChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: years,
+                    datasets: [{
+                        label: 'ETR (%)',
+                        data: etrs,
+                        borderColor: '#1a472a',
+                        backgroundColor: 'rgba(26, 71, 42, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#1a472a',
+                        pointRadius: 5,
+                        pointHoverRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `ETR: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            title: { display: true, text: 'Effective Tax Rate (%)' },
+                            min: 0,
+                            max: 40
+                        },
+                        x: {
+                            title: { display: true, text: 'Fiscal Year' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Refresh function
+        function refreshData() {
+            loadCompanies();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CTCMS - Corporate Tax Compliance Monitoring System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<script>
+    // Check authentication - only check for session token, no auto-redirect loop
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+        // Only redirect if we're not already on login page
+        if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+        }
+    }
+    
+    // Get user info from localStorage
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userRole = localStorage.getItem('role');
+    
+    // Display user info in sidebar after DOM loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const userNameElement = document.querySelector('.user-name');
+        const userRoleElement = document.querySelector('.user-role');
+        
+        if (userNameElement && user.full_name) {
+            userNameElement.textContent = user.full_name;
+        }
+        if (userRoleElement && userRole) {
+            userRoleElement.textContent = userRole.toUpperCase();
+        }
+    });
+    
+    // Logout function - clear everything and redirect
+    function logout() {
+        localStorage.clear();
+        // Clear cookies
+        document.cookie.split(";").forEach(function(c) {
+            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+        window.location.href = '/logout';
+    }
+</script>
+
+    <div class="app-container">
+        <!-- Sidebar with all functional tabs -->
+        <aside class="sidebar" id="sidebar">
+            <div class="logo-container">
+                <div class="logo">
+                    <img src="/static/images/logos/zimra-logo.webp" alt="ZIMRA Logo" class="zimra-logo"
+                         onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'logo-icon\'><i class=\'fas fa-chart-line\'></i></div><div class=\'logo-text\'><span class=\'logo-title\'>CTCMS</span><span class=\'logo-subtitle\'>ZIMRA</span></div>'">
+                    <div class="logo-text">
+                        <span class="logo-title">CTCMS</span>
+                        <span class="logo-subtitle">Zimbabwe Revenue Authority</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-tab="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+               
+                <a href="#" class="nav-item" data-tab="risk">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Risk Scores</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="etr-analysis">
+                    <i class="fas fa-percent"></i>
+                    <span>ETR Analysis</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="behavioral-analysis">
+    <i class="fas fa-brain"></i>
+    <span>Tax Fraud detector</span>
+</a>
+                <a href="#" class="nav-item" data-tab="audit">
+                    <i class="fas fa-gavel"></i>
+                    <span>Audit Cases</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="reports">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Compliance Reports</span>
+                </a>
+                <div class="sidebar-footer">
+  <div class="sidebar-footer">
+    <div class="user-info">
+        <i class="fas fa-user-circle"></i>
+        <div class="user-details">
+            <span class="user-name">Loading...</span>
+            <span class="user-role">Loading...</span>
+        </div>
+    </div>
+    <button onclick="logout()" class="logout-btn" style="width: 100%; margin-top: 10px; padding: 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 8px; color: white; cursor: pointer;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+    </button>
+</div>
+
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <div class="user-details">
+                        <span class="user-name">Compliance Officer</span>
+                        <span class="user-role">ZIMRA Tax Admin</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div style="display: flex; align-items: center;">
+                    <button class="mobile-menu-toggle" id="mobileMenuToggle">☰</button>
+                    <div class="page-title">
+                        <h1 id="page-title">Dashboard</h1>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">🌓</button>
+                    <div class="date-display" id="current-date"></div>
+                    <button class="btn-refresh" onclick="refreshData()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Tab -->
+            <div id="dashboard-tab" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fas fa-building"></i></div>
+                        <div class="stat-info">
+                            <h3>Total Taxpayers</h3>
+                            <div class="stat-value" id="total-taxpayers">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+                        <div class="stat-info">
+                            <h3>Low Risk</h3>
+                            <div class="stat-value" id="low-risk-count">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon yellow"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div class="stat-info">
+                            <h3>Medium Risk</h3>
+                            <div class="stat-value" id="medium-risk-count">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon red"><i class="fas fa-times-circle"></i></div>
+                        <div class="stat-info">
+                            <h3>High Risk</h3>
+                            <div class="stat-value" id="high-risk-count">0</div>
+                        </div>
+                    </div>
+                   
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon teal"><i class="fas fa-brain"></i></div>
+                        <div class="stat-info">
+                            <h3>Predicted Risks</h3>
+                            <div class="stat-value" id="behavioral-alerts-count">0</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon brown"><i class="fas fa-gavel"></i></div>
+                        <div class="stat-info">
+                            <h3>Audit Cases</h3>
+                            <div class="stat-value" id="audit-cases-count">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Risk Distribution</h3>
+                        <div class="chart-container"><canvas id="risk-chart"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Recent Activity</h3>
+                        <div id="recent-activity" class="activity-list">
+                            <p class="no-data">Loading activity...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+           <!-- Risk Scores Tab -->
+<div id="risk-tab" class="tab-content">
+    <!-- Stats Summary Cards -->
+    <div class="stats-grid">
+        <div class="stat-card" onclick="filterRiskCompanies('high')">
+            <div class="stat-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-info">
+                <h3>High Risk</h3>
+                <div class="stat-value" id="risk-high-count">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterRiskCompanies('medium')">
+            <div class="stat-icon orange"><i class="fas fa-chart-line"></i></div>
+            <div class="stat-info">
+                <h3>Medium Risk</h3>
+                <div class="stat-value" id="risk-medium-count">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterRiskCompanies('low')">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <div class="stat-info">
+                <h3>Low Risk</h3>
+                <div class="stat-value" id="risk-low-count">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterRiskCompanies('all')">
+            <div class="stat-icon blue"><i class="fas fa-building"></i></div>
+            <div class="stat-info">
+                <h3>Total Companies</h3>
+                <div class="stat-value" id="risk-total-count">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div class="action-group">
+            <button onclick="refreshRiskData()" class="btn-secondary">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+            <button onclick="exportRiskReport()" class="btn-primary">
+                <i class="fas fa-download"></i> Export Report
+            </button>
+        </div>
+        <div class="search-group">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="risk-search" placeholder="Search company by name or ID..." onkeyup="filterRiskCompanies()">
+            </div>
+            <select id="risk-year-filter" onchange="loadRiskCompanies()" class="filter-select">
+                <option value="2022">2022</option>
+                <option value="2023">2023</option>
+                <option value="2024" selected>2024</option>
+                <option value="2025">2025</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Companies Grid -->
+    <div id="risk-companies-grid" class="risk-companies-grid">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading companies...</div>
+    </div>
+</div>
+
+<!-- Risk Score Details Modal -->
+<div id="risk-details-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 700px; max-height: 85vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h2><i class="fas fa-chart-line"></i> Risk Score Details</h2>
+            <span class="close-modal" onclick="closeRiskModal()">&times;</span>
+        </div>
+        <div id="risk-details-content" style="padding: 20px;">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading details...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Validation Issues Modal -->
+<div id="validation-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h2><i class="fas fa-check-double"></i> Validation Issues</h2>
+            <span class="close-modal" onclick="closeValidationModal()">&times;</span>
+        </div>
+        <div id="validation-details-content" style="padding: 20px;">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading validation issues...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Company Details Modal -->
+<div id="company-details-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 900px; max-height: 85vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h2><i class="fas fa-building"></i> Company Details</h2>
+            <span class="close-modal" onclick="closeCompanyModal()">&times;</span>
+        </div>
+        <div id="company-details-content" style="padding: 20px;">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading company details...</div>
+        </div>
+    </div>
+</div>
+
+         <!-- ETR Analysis Tab -->
+<div id="etr-analysis-tab" class="tab-content">
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card" onclick="filterETRByRisk('low')">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <div class="stat-info">
+                <h3>Low Risk (Variance < 6%)</h3>
+                <div class="stat-value" id="etr-low-count">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterETRByRisk('medium')">
+            <div class="stat-icon orange"><i class="fas fa-chart-line"></i></div>
+            <div class="stat-info">
+                <h3>Medium Risk (7-9%)</h3>
+                <div class="stat-value" id="etr-medium-count">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterETRByRisk('high')">
+            <div class="stat-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-info">
+                <h3>Aggressive (10-12.5%)</h3>
+                <div class="stat-value" id="etr-high-count">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div class="action-group">
+            <button onclick="refreshETRAnalysis()" class="btn-secondary">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+            <button onclick="exportETRReport()" class="btn-primary">
+                <i class="fas fa-download"></i> Export Report
+            </button>
+        </div>
+        <div class="search-group">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="etr-search" placeholder="Search company by name or ID..." onkeyup="filterETRCompanies()">
+            </div>
+            <select id="etr-risk-filter" onchange="filterETRCompanies()" class="filter-select">
+                <option value="">All Risk Levels</option>
+                <option value="low">Low Risk (Variance < 6%)</option>
+                <option value="medium">Medium Risk (7-9%)</option>
+                <option value="high">Aggressive (10-12.5%)</option>
+            </select>
+            <select id="etr-year-filter" onchange="loadETRAnalysisData()" class="filter-select">
+                <option value="2022">2015</option>
+                <option value="2022">2016</option>
+                <option value="2022">2017</option>
+                <option value="2022">2018</option>
+                <option value="2022">2019</option>
+                <option value="2022">2020</option>
+                <option value="2022">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+                <option value="2024" selected>2025</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Companies Grid with Cards -->
+    <div id="etr-companies-grid" class="etr-grid">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading ETR data...</div>
+    </div>
+</div>
+            <!-- Behavioral Alerts Tab -->
+            <div id="behavioral-tab" class="tab-content">
+                <div class="table-card">
+                    <h3><i class="fas fa-brain"></i> Behavioral Alerts</h3>
+                    <div class="filter-bar">
+                        <select id="behavioral-status-filter" onchange="loadBehavioralAlerts()">
+                            <option value="New">New Alerts</option>
+                            <option value="All">All Alerts</option>
+                        </select>
+                        <select id="behavioral-severity-filter" onchange="loadBehavioralAlerts()">
+                            <option value="">All Severities</option>
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                        </select>
+                        <button onclick="loadBehavioralAlerts()" class="btn-secondary">Filter</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table" id="behavioral-alerts-table">
+                            <thead>
+                                32
+                                    <th>ID</th>
+                                    <th>Taxpayer</th>
+                                    <th>Year</th>
+                                    <th>Alert Type</th>
+                                    <th>Confidence</th>
+                                    <th>Severity</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody><tr><td colspan="9" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+
+<!-- Behavioral Analysis Tab -->
+<div id="behavioral-analysis-tab" class="tab-content">
+    <!-- Model Status Banner -->
+    <div class="model-status" id="model-status">
+        <div class="status-indicator">
+            <i class="fas fa-circle"></i>
+            <span id="model-status-text">Checking model status...</span>
+        </div>
+        <div class="model-actions">
+            <button onclick="checkModelStatus()" class="btn-sm btn-outline">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card" onclick="filterBehaviors('High Risk')">
+            <div class="stat-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-info">
+                <h3>High Risk</h3>
+                <div class="stat-value" id="high-risk-behaviors">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterBehaviors('Medium Risk')">
+            <div class="stat-icon orange"><i class="fas fa-chart-line"></i></div>
+            <div class="stat-info">
+                <h3>Medium Risk</h3>
+                <div class="stat-value" id="medium-risk-behaviors">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterBehaviors('Low Risk')">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <div class="stat-info">
+                <h3>Low Risk</h3>
+                <div class="stat-value" id="low-risk-behaviors">0</div>
+            </div>
+        </div>
+        <div class="stat-card" onclick="filterBehaviors('')">
+            <div class="stat-icon blue"><i class="fas fa-brain"></i></div>
+            <div class="stat-info">
+                <h3>Total Detections</h3>
+                <div class="stat-value" id="total-behaviors">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div class="action-group">
+            <button onclick="showBatchYearModal()" class="btn-primary">
+                <i class="fas fa-chart-line"></i> Batch Analyze All
+            </button>
+            <button onclick="clearDetections()" class="btn-danger">
+                <i class="fas fa-trash-alt"></i> Clear All Detections
+            </button>
+        </div>
+        <div class="search-group">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="behavioral-search" placeholder="Search company by name or ID..." onkeyup="filterBehavioralCompanies()">
+            </div>
+            <select id="behavior-risk-filter" onchange="filterBehavioralCompanies()" class="filter-select">
+                <option value="">All Risk Levels</option>
+                <option value="High Risk">High Risk</option>
+                <option value="Medium Risk">Medium Risk</option>
+                <option value="Low Risk">Low Risk</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Expandable Companies List -->
+    <div class="section-title">
+        <h3><i class="fas fa-building"></i> Companies for Analysis</h3>
+        <div class="section-controls">
+            <span class="section-badge" id="companies-count">0 companies</span>
+            <button onclick="expandAllCompanies()" class="btn-sm btn-outline">
+                <i class="fas fa-expand-alt"></i> Expand All
+            </button>
+            <button onclick="collapseAllCompanies()" class="btn-sm btn-outline">
+                <i class="fas fa-compress-alt"></i> Collapse All
+            </button>
+        </div>
+    </div>
+    <div id="behavioral-companies-container" class="companies-accordion">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading companies...</div>
+    </div>
+
+    <!-- Detected Behaviors History -->
+    <div class="section-title" style="margin-top: 30px;">
+        <h3><i class="fas fa-history"></i> Detected Behaviors History</h3>
+        <div class="filter-group">
+            <select id="behavior-type-filter" onchange="loadDetectedBehaviors()" class="filter-select">
+                <option value="">All Types</option>
+                <option value="High Risk">High Risk</option>
+                <option value="Medium Risk">Medium Risk</option>
+                <option value="Low Risk">Low Risk</option>
+            </select>
+            <select id="reviewed-filter" onchange="loadDetectedBehaviors()" class="filter-select">
+                <option value="">All Status</option>
+                <option value="false">Pending Review</option>
+                <option value="true">Reviewed</option>
+            </select>
+            <button onclick="loadDetectedBehaviors()" class="btn-secondary">
+                <i class="fas fa-filter"></i> Apply
+            </button>
+        </div>
+    </div>
+    <div id="detected-behaviors-container" class="behaviors-grid">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading detected behaviors...</div>
+    </div>
+</div>
+
+<!-- Year Selection Modal -->
+<div id="year-select-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-calendar-alt"></i> Select Year</h2>
+            <span class="close-modal" onclick="closeYearSelectModal()">&times;</span>
+        </div>
+        <div style="padding: 25px;">
+            <div class="form-group">
+                <label>Select Fiscal Year for Analysis:</label>
+                <select id="analysis-year-select" class="form-control" style="width: 100%; padding: 10px; margin-top: 10px;">
+                    <option value="2015">2015</option>
+                    <option value="2016">2016</option>
+                    <option value="2017">2017</option>
+                    <option value="2018">2018</option>
+                    <option value="2019">2019</option>
+                    <option value="2020">2020</option>
+                    <option value="2021">2021</option>
+                    <option value="2022">2022</option>
+                    <option value="2023">2023</option>
+                    <option value="2024" selected>2024</option>
+                    <option value="2025">2025</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="confirmYearSelection()" class="btn-primary">
+                    <i class="fas fa-check"></i> Analyze
+                </button>
+                <button onclick="closeYearSelectModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Batch Year Selection Modal -->
+<div id="batch-year-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-calendar-alt"></i> Batch Analysis</h2>
+            <span class="close-modal" onclick="closeBatchYearModal()">&times;</span>
+        </div>
+        <div style="padding: 25px;">
+            <div class="form-group">
+                <label>Select Fiscal Year for Batch Analysis:</label>
+                <select id="batch-year-select" class="form-control" style="width: 100%; padding: 10px; margin-top: 10px;">
+                    <option value="2015">2015</option>
+                    <option value="2016">2016</option>
+                    <option value="2017">2017</option>
+                    <option value="2018">2018</option>
+                    <option value="2019">2019</option>
+                    <option value="2020">2020</option>
+                    <option value="2021">2021</option>
+                    <option value="2022">2022</option>
+                    <option value="2023">2023</option>
+                    <option value="2024" selected>2024</option>
+                    <option value="2025">2025</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="runBatchAnalysis()" class="btn-primary">
+                    <i class="fas fa-chart-line"></i> Run Analysis
+                </button>
+                <button onclick="closeBatchYearModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Behavioral Details Modal -->
+<div id="behavior-details-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h2><i class="fas fa-chart-bar"></i> Behavioral Analysis Details</h2>
+            <span class="close-modal" onclick="closeBehaviorDetailsModal()">&times;</span>
+        </div>
+        <div id="behavior-details-content" style="padding: 20px;">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading details...</div>
+        </div>
+    </div>
+</div>
+            <!-- Audit Cases Tab -->
+<div id="audit-tab" class="tab-content">
+    <!-- Action Buttons -->
+    <div class="form-card" style="margin-bottom: 20px;">
+        <div class="form-row">
+            <div class="form-group">
+                <label>Fiscal Year</label>
+                <input type="number" id="audit-fiscal-year" value="2024">
+            </div>
+            <div class="form-group">
+                <label>Risk Threshold</label>
+                <select id="audit-risk-threshold">
+                    <option value="70">High Risk (≥70)</option>
+                    <option value="80">Very High Risk (≥80)</option>
+                    <option value="60">Medium-High Risk (≥60)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button onclick="generateAuditCases()" class="btn-primary">
+                    <i class="fas fa-plus-circle"></i> Generate Audit Cases
+                </button>
+            </div>
+            <div class="form-group">
+                <button onclick="exportAllAuditReports()" class="btn-secondary">
+                    <i class="fas fa-file-pdf"></i> Export All Reports
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Audit Cases Table -->
+    <div class="table-card">
+        <h3><i class="fas fa-gavel"></i> Audit Cases</h3>
+        <div class="filter-bar">
+            <select id="audit-status-filter" onchange="loadAuditCases()">
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="Under Review">Under Review</option>
+                <option value="Closed">Closed</option>
+            </select>
+            <button onclick="loadAuditCases()" class="btn-secondary">Refresh</button>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table" id="audit-cases-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Taxpayer</th>
+                        <th>Audit Date</th>
+                        <th>Risk Score</th>
+                        <th>Priority</th>
+                        <th>Findings</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="8" class="text-center">Loading...</td</tr>
+                </tbody>
+             </table>
+        </div>
+    </div>
+</div>
+
+            <!-- Compliance Reports Tab -->
+            <div id="reports-tab" class="tab-content">
+                <div class="form-card">
+                    <h3>Generate Compliance Report</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Report Type</label>
+                            <select id="report-type">
+                                <option value="risk-summary">Risk Summary</option>
+                                <option value="validation-report">Validation Report</option>
+                                <option value="behavioral-report">Behavioral Analysis Report</option>
+                                <option value="etr-report">ETR Analysis Report</option>
+                                <option value="audit-report">Audit Outcomes Report</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fiscal Year</label>
+                            <input type="number" id="report-year" value="2024">
+                        </div>
+                        <div class="form-group">
+                            <button onclick="generateReport()" class="btn-primary">
+                                <i class="fas fa-chart-line"></i> Generate Report
+                            </button>
+                        </div>
+                        <div class="form-group">
+                            <button onclick="exportReport(document.getElementById('report-type').value, document.getElementById('report-year').value)" class="btn-secondary">
+                                <i class="fas fa-file-export"></i> Export Direct
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-card">
+                    <h3>Generated Reports</h3>
+                    <div class="table-responsive">
+                        <table class="data-table" id="reports-table">
+                            <thead>
+                                32
+                                    <th>ID</th>
+                                    <th>Report Type</th>
+                                    <th>Year</th>
+                                    <th>Generated At</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody><tr><td colspan="5" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="report-result"></div>
+            </div>
+        </main>
+    </div>
+
+
+    <!-- Year Selection Modal -->
+<div id="year-selection-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-calendar-alt"></i> Select Year for Behavioral Analysis</h2>
+            <span class="close-modal" onclick="closeYearModal()">&times;</span>
+        </div>
+        <div id="year-selection-content" style="padding: 20px;">
+            <div class="form-group">
+                <label>Select Fiscal Year:</label>
+                <select id="behavioral-year-select" class="form-control" style="width: 100%; padding: 10px; margin-top: 10px;">
+                    <option value="2022">2022</option>
+                    <option value="2023">2023</option>
+                    <option value="2024" selected>2024</option>
+                    <option value="2025">2025</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="runBatchAnalysisWithYear()" class="btn-primary">
+                    <i class="fas fa-chart-line"></i> Run Batch Analysis
+                </button>
+                <button onclick="closeYearModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Behavioral Details Modal -->
+<div id="behavior-details-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 700px; max-height: 80vh; overflow-y: auto;">
+        <div class="modal-header">
+            <h2><i class="fas fa-chart-bar"></i> Behavioral Analysis Details</h2>
+            <span class="close-modal" onclick="closeBehaviorDetailsModal()">&times;</span>
+        </div>
+        <div id="behavior-details-content" style="padding: 20px;">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading details...</div>
+        </div>
+    </div>
+</div>
+    <script src="/static/js/app.js"></script>
+
+    <script>
+    // Check authentication on page load
+    const sessionToken = localStorage.getItem('session_token');
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userRole = localStorage.getItem('role');
+    
+    if (!sessionToken) {
+        window.location.href = '/login';
+    }
+    
+    // Add token to all fetch requests
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+        const headers = args[1]?.headers || {};
+        args[1] = {
+            ...args[1],
+            headers: {
+                ...headers,
+                'Authorization': `Bearer ${sessionToken}`
+            }
+        };
+        return originalFetch.apply(this, args);
+    };
+    
+    // Display user info in sidebar
+    document.addEventListener('DOMContentLoaded', function() {
+        const userNameElement = document.querySelector('.user-name');
+        const userRoleElement = document.querySelector('.user-role');
+        
+        if (userNameElement && user.full_name) {
+            userNameElement.textContent = user.full_name;
+        }
+        if (userRoleElement && userRole) {
+            userRoleElement.textContent = userRole.toUpperCase();
+        }
+        
+        // Hide admin-only elements for non-admin users
+        if (userRole !== 'admin') {
+            const adminElements = document.querySelectorAll('.admin-only');
+            adminElements.forEach(el => el.style.display = 'none');
+        }
+    });
+    
+    // Logout function
+    function logout() {
+        fetch('/api/v1/governance/auth/logout', { method: 'POST' })
+            .finally(() => {
+                localStorage.clear();
+                window.location.href = '/login';
+            });
+    }
+</script>
+</body>
+</html>

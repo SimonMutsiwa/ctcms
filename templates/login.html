@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CTCMS Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1a472a 0%, #0e2a1a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 450px;
+            padding: 20px;
+        }
+        
+        .login-card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            color: #1a472a;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .logo p {
+            color: #64748b;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #1a2c3e;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #1a472a;
+            box-shadow: 0 0 0 3px rgba(26, 71, 42, 0.1);
+        }
+        
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: #1a472a;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .btn-login:hover {
+            background: #0e2a1a;
+        }
+        
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .demo-credentials {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        
+        .demo-credentials h4 {
+            margin-bottom: 10px;
+            color: #1a2c3e;
+        }
+        
+        .demo-credentials p {
+            margin: 5px 0;
+            color: #64748b;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .fa-spinner {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="logo">
+                <i class="fas fa-chart-line" style="font-size: 48px; color: #1a472a;"></i>
+                <h1>CTCMS</h1>
+                <p>Corporate Tax Compliance Monitoring System</p>
+            </div>
+            
+            <div id="error-message" class="error-message"></div>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="username" placeholder="Enter your username" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" placeholder="Enter your password" required>
+                </div>
+                <button type="submit" class="btn-login">
+                    <span id="login-text">Login</span>
+                    <i id="login-spinner" class="fas fa-spinner" style="display: none;"></i>
+                </button>
+            </form>
+            
+            <div class="demo-credentials">
+                <h4>Demo Credentials</h4>
+                <p><strong>Admin:</strong> admin / admin123</p>
+                <p><strong>Auditor:</strong> auditor / auditor123</p>
+                <p><strong>Compliance:</strong> compliance / compliance123</p>
+                <p><strong>Viewer:</strong> viewer / viewer123</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // IMPORTANT: Clear ALL localStorage on login page load
+        // This prevents auto-login after logout
+        localStorage.clear();
+        
+        // Also try to clear any cookies that might be causing issues
+        document.cookie.split(";").forEach(function(c) {
+            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+        
+        // Hardcoded demo users for frontend authentication
+        const DEMO_USERS = {
+            'admin': { password: 'admin123', role: 'admin', name: 'System Administrator' },
+            'auditor': { password: 'auditor123', role: 'auditor', name: 'Senior Auditor' },
+            'compliance': { password: 'compliance123', role: 'compliance', name: 'Compliance Officer' },
+            'viewer': { password: 'viewer123', role: 'viewer', name: 'Tax Analyst' }
+        };
+        
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginText = document.getElementById('login-text');
+            const loginSpinner = document.getElementById('login-spinner');
+            const errorDiv = document.getElementById('error-message');
+            
+            loginText.style.display = 'none';
+            loginSpinner.style.display = 'inline-block';
+            errorDiv.style.display = 'none';
+            
+            // Simulate API call delay
+            setTimeout(() => {
+                const user = DEMO_USERS[username];
+                
+                if (user && user.password === password) {
+                    // Store user data
+                    localStorage.setItem('session_token', 'demo-token-' + Date.now());
+                    localStorage.setItem('user', JSON.stringify({
+                        username: username,
+                        full_name: user.name,
+                        role: user.role
+                    }));
+                    localStorage.setItem('role', user.role);
+                    
+                    // Redirect to dashboard
+                    window.location.href = '/';
+                } else {
+                    errorDiv.textContent = 'Invalid username or password';
+                    errorDiv.style.display = 'block';
+                }
+                
+                loginText.style.display = 'inline';
+                loginSpinner.style.display = 'none';
+            }, 500);
+        });
+    </script>
+</body>
+</html>

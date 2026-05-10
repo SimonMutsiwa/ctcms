@@ -1,0 +1,28 @@
+# Database Configuration
+# For MySQL
+DATABASE_URL=mysql+pymysql://username:password@localhost:3306/forensic_db
+
+# For SQLite (simpler for development)
+# DATABASE_URL=sqlite:///instance/forensic.db
+
+# Flask Configuration
+FLASK_ENV=development
+FLASK_APP=run.py
+SECRET_KEY=your-secret-key-here
+
+# JWT Configuration
+JWT_SECRET_KEY=jwt-secret-key-here
+
+# MySQL Credentials (alternative format)
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=samar
+DB_PASSWORD=2003sadoo
+DB_NAME=forensic_test_db
+
+
+# Force SQLite - No MySQL
+DATABASE_URL=sqlite:///instance/forensic.db
+FLASK_ENV=development
+SECRET_KEY=dev-secret-key-for-testing
+JWT_SECRET_KEY=jwt-secret-key-for-testing

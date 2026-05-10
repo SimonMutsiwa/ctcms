@@ -1,0 +1,3583 @@
+// API Base URL
+const API_BASE = 'http://localhost:5000/api/v1';
+
+// Global chart instance
+let riskChart;
+let etrTrendChart = null;
+
+
+let etrCompaniesData = [];
+
+// ==================== UTILITY FUNCTIONS ====================
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Show loading state
+function showLoading(elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    }
+}
+
+// Show error message
+function showError(elementId, message) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.innerHTML = `<div class="error-message"><i class="fas fa-exclamation-circle"></i> ${message}</div>`;
+    }
+}
+
+// Format date
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Get risk badge class
+function getRiskBadgeClass(riskLevel) {
+    const level = String(riskLevel).toLowerCase();
+    if (level.includes('high')) return 'high';
+    if (level.includes('medium')) return 'medium';
+    if (level.includes('low')) return 'low';
+    return 'medium';
+}
+
+// Escape HTML for ETR analysis
+function escapeHtmlForETR(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function escapeHtmlForJSON(obj) {
+    return JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
+
+// ==================== INITIALIZATION ====================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Set current date
+    const today = new Date();
+    const dateElement = document.getElementById('current-date');
+    if (dateElement) {
+        dateElement.innerHTML = today.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+    }
+    
+    // Initialize navigation
+    initNavigation();
+    
+    // Load dashboard data
+    loadDashboardStats();
+    loadRecentAssessments();
+    loadRecentAlerts();
+    
+    // Load tab-specific data
+    loadValidationIssues();
+    loadRiskHistory();
+    loadBehavioralAlerts();
+    loadETRAlerts();
+    loadAuditCases();
+    loadReports();
+    
+    // Set up form submission
+    const governanceForm = document.getElementById('governance-form');
+    if (governanceForm) {
+        governanceForm.addEventListener('submit', submitGovernanceData);
+    }
+    
+    // Set up audit case form
+    const auditForm = document.getElementById('audit-case-form');
+    if (auditForm) {
+        auditForm.addEventListener('submit', createAuditCase);
+    }
+    
+    // Initialize theme from localStorage
+    initTheme();
+    
+    // Initialize mobile menu
+    initMobileMenu();
+    
+    // Add resize listener for charts
+    window.addEventListener('resize', function() {
+        if (riskChart) riskChart.resize();
+        if (etrTrendChart) etrTrendChart.resize();
+    });
+    
+    // Initialize Behavioral Analysis tab if present
+    if (document.getElementById('behavioral-analysis-tab')) {
+        loadBehavioralStats();
+        loadDetectedBehaviors();
+        loadBehavioralCompanies();
+    }
+    
+    // Initialize ETR Analysis tab if present
+    if (document.getElementById('companies-grid')) {
+        loadCompaniesForETR();
+    }
+});
+
+// ==================== THEME MANAGEMENT ====================
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+    }
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+}
+
+// ==================== MOBILE MENU ====================
+
+function initMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const mobileToggle = document.getElementById('mobileMenuToggle');
+    
+    if (mobileToggle) {
+        mobileToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+    }
+    
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', function(e) {
+        if (window.innerWidth <= 768 && sidebar && sidebar.classList.contains('open')) {
+            if (!sidebar.contains(e.target) && e.target !== mobileToggle) {
+                sidebar.classList.remove('open');
+            }
+        }
+    });
+}
+
+// ==================== NAVIGATION ====================
+
+function initNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
+    const tabs = document.querySelectorAll('.tab-content');
+    
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const tabId = item.getAttribute('data-tab');
+            
+            // Update active nav item
+            navItems.forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
+            
+            // Update active tab
+            tabs.forEach(tab => tab.classList.remove('active'));
+            const targetTab = document.getElementById(`${tabId}-tab`);
+            if (targetTab) targetTab.classList.add('active');
+            
+            // Update page title
+            const titleSpan = item.querySelector('span');
+            if (titleSpan) {
+                const pageTitle = document.getElementById('page-title');
+                if (pageTitle) pageTitle.innerText = titleSpan.innerText;
+            }
+            
+            // Load tab-specific data
+            if (tabId === 'validation') loadValidationIssues();
+            if (tabId === 'risk') loadRiskHistory();
+            if (tabId === 'etr') loadETRAlerts();
+            if (tabId === 'etr-analysis') {
+                setTimeout(() => {
+                    if (typeof loadCompaniesForETR === 'function') {
+                        loadCompaniesForETR();
+                    }
+                }, 100);
+            }
+            if (tabId === 'behavioral') loadBehavioralAlerts();
+            if (tabId === 'audit') loadAuditCases();
+            if (tabId === 'reports') loadReports();
+        });
+    });
+}
+
+
+
+
+
+
+async function loadDashboardStats() {
+    try {
+        console.log('Loading dashboard stats...');
+        const response = await fetch(`${API_BASE}/governance/dashboard/stats`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Dashboard stats received:', data);
+        
+        // Update stats cards
+        const totalTaxpayers = document.getElementById('total-taxpayers');
+        const lowRisk = document.getElementById('low-risk-count');
+        const mediumRisk = document.getElementById('medium-risk-count');
+        const highRisk = document.getElementById('high-risk-count');
+        const validationCount = document.getElementById('validation-count');
+        const etrAlertsCount = document.getElementById('etr-alerts-count');
+        const behavioralAlertsCount = document.getElementById('behavioral-alerts-count');
+        const auditCasesCount = document.getElementById('audit-cases-count');
+        const complianceRate = document.getElementById('compliance-rate');
+        
+        if (totalTaxpayers) totalTaxpayers.innerText = data.total_taxpayers || 0;
+        if (lowRisk) lowRisk.innerText = data.low_risk || 0;
+        if (mediumRisk) mediumRisk.innerText = data.medium_risk || 0;
+        if (highRisk) highRisk.innerText = data.high_risk || 0;
+        if (validationCount) validationCount.innerText = data.pending_validations || 0;
+        if (etrAlertsCount) etrAlertsCount.innerText = data.etr_alerts || 0;
+        if (behavioralAlertsCount) behavioralAlertsCount.innerText = data.behavioral_alerts || 0;
+        if (auditCasesCount) auditCasesCount.innerText = data.audit_cases || 0;
+        if (complianceRate) complianceRate.innerText = `${data.compliance_rate || 0}%`;
+        
+        // Update chart
+        updateRiskChart({ 
+            low_risk: data.low_risk || 0, 
+            medium_risk: data.medium_risk || 0, 
+            high_risk: data.high_risk || 0 
+        });
+        
+    } catch (error) {
+        console.error('Error loading dashboard stats:', error);
+        // Set default values on error
+        const elements = ['total-taxpayers', 'low-risk-count', 'medium-risk-count', 'high-risk-count', 
+                         'validation-count', 'etr-alerts-count', 'behavioral-alerts-count', 'audit-cases-count'];
+        elements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = '0';
+        });
+        const complianceEl = document.getElementById('compliance-rate');
+        if (complianceEl) complianceEl.innerText = '0%';
+    }
+}
+
+async function loadRecentAssessments() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/recent-assessments`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#recent-assessments tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">No data available</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(item => `
+            <tr>
+                <td><strong>${item.taxpayer_id}</strong></td>
+                <td>${item.company_name || 'N/A'}</td>
+                <td><strong>${item.risk_score}</strong></td>
+                <td><span class="risk-badge ${getRiskBadgeClass(item.risk_level)}">${item.risk_level}</span></td>
+                <td>${item.last_assessment || 'N/A'}</td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading assessments:', error);
+        const tbody = document.querySelector('#recent-assessments tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">Error loading data</td></tr>';
+        }
+    }
+}
+
+async function loadRecentAlerts() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/dashboard/recent-activity`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const container = document.getElementById('recent-activity');
+        if (!container) return;
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<p class="no-data">No recent activity</p>';
+            return;
+        }
+        
+        container.innerHTML = data.map(activity => {
+            const date = activity.date ? new Date(activity.date) : new Date();
+            const timeAgo = getTimeAgo(date);
+            const levelClass = activity.level || 'info';
+            
+            return `
+                <div class="activity-item ${levelClass}" onclick="viewActivityDetails('${activity.type}', ${activity.taxpayer_id})">
+                    <div class="activity-icon">
+                        <i class="fas ${activity.icon}"></i>
+                    </div>
+                    <div class="activity-content">
+                        <div class="activity-header">
+                            <strong class="activity-title">${escapeHtml(activity.title)}</strong>
+                            <span class="activity-time">${timeAgo}</span>
+                        </div>
+                        <div class="activity-description">${escapeHtml(activity.description)}</div>
+                        <div class="activity-meta">
+                            <span class="taxpayer-badge">
+                                <i class="fas fa-building"></i> ${escapeHtml(activity.taxpayer_name || `Taxpayer ${activity.taxpayer_id}`)}
+                            </span>
+                            ${activity.severity ? `<span class="severity-badge ${activity.severity.toLowerCase()}">${escapeHtml(activity.severity)}</span>` : ''}
+                            ${activity.confidence ? `<span class="confidence-badge">${Math.round(activity.confidence * 100)}% confidence</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Error loading recent activity:', error);
+        const container = document.getElementById('recent-activity');
+        if (container) {
+            container.innerHTML = '<p class="no-data">Error loading activity</p>';
+        }
+    }
+}
+// ==================== DASHBOARD FUNCTIONS ====================
+
+
+function updateRiskChart(data) {
+    const canvas = document.getElementById('risk-chart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    if (riskChart) {
+        riskChart.destroy();
+    }
+    
+    riskChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Low Risk', 'Medium Risk', 'High Risk'],
+            datasets: [{
+                data: [data.low_risk || 0, data.medium_risk || 0, data.high_risk || 0],
+                backgroundColor: ['#16a34a', '#e67e22', '#dc2626'],
+                borderWidth: 0,
+                hoverOffset: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { font: { size: 12 }, padding: 15 }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.raw || 0;
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            },
+            cutout: '60%'
+        }
+    });
+}
+
+
+
+
+function getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+}
+
+function viewActivityDetails(type, taxpayerId) {
+    if (type === 'validation') {
+        document.querySelector('[data-tab="validation"]').click();
+        const filterInput = document.getElementById('validation-taxpayer-filter');
+        if (filterInput) filterInput.value = taxpayerId;
+        setTimeout(() => loadValidationIssues(), 100);
+    } else if (type === 'behavioral') {
+        document.querySelector('[data-tab="behavioral"]').click();
+        setTimeout(() => loadBehavioralAlerts(), 100);
+    } else if (type === 'etr') {
+        document.querySelector('[data-tab="etr"]').click();
+        setTimeout(() => loadETRAlerts(), 100);
+    } else if (type === 'audit') {
+        document.querySelector('[data-tab="audit"]').click();
+        setTimeout(() => loadAuditCases(), 100);
+    }
+}
+
+// ==================== VALIDATION ISSUES ====================
+
+async function loadValidationIssues() {
+    const statusFilter = document.getElementById('validation-status-filter');
+    const severityFilter = document.getElementById('validation-severity-filter');
+    const taxpayerFilter = document.getElementById('validation-taxpayer-filter');
+    
+    let url = `${API_BASE}/governance/validation-issues`;
+    const params = new URLSearchParams();
+    
+    if (statusFilter && statusFilter.value) params.append('status', statusFilter.value);
+    if (severityFilter && severityFilter.value) params.append('severity', severityFilter.value);
+    if (taxpayerFilter && taxpayerFilter.value) params.append('taxpayer_id', taxpayerFilter.value);
+    
+    if (params.toString()) url += `?${params.toString()}`;
+    
+    try {
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#validation-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No validation issues found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(issue => `
+            <tr>
+                <td>${issue.id}</td>
+                <td>
+                    <strong>${issue.taxpayer_id}</strong>
+                    <br><small>${issue.taxpayer_name || ''}</small>
+                </td>
+                <td>${issue.fiscal_year}</td>
+                <td>${issue.issue_type}</td>
+                <td><span class="risk-badge ${issue.severity.toLowerCase()}">${issue.severity}</span></td>
+                <td>${issue.description}</td>
+                <td><span class="status-badge ${issue.status.toLowerCase()}">${issue.status}</span></td>
+                <td>
+                    ${issue.status === 'Open' ? 
+                        `<button onclick="resolveValidationIssue(${issue.id})" class="btn-secondary" style="padding: 5px 10px;">Resolve</button>` : 
+                        '-'
+                    }
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading validation issues:', error);
+        const tbody = document.querySelector('#validation-table tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">Error loading validation issues</td></tr>';
+        }
+    }
+}
+
+async function resolveValidationIssue(issueId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/validation-issues/${issueId}/resolve`, {
+            method: 'PUT'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Validation issue resolved');
+            loadValidationIssues();
+            loadDashboardStats();
+        } else {
+            showNotification('error', 'Failed to resolve issue');
+        }
+    } catch (error) {
+        console.error('Error resolving issue:', error);
+        showNotification('error', 'Error resolving issue');
+    }
+}
+
+async function resolveValidationIssue(issueId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/validation-issues/${issueId}/resolve`, {
+            method: 'PUT'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Validation issue resolved');
+            loadValidationIssues();
+        } else {
+            showNotification('error', 'Failed to resolve issue');
+        }
+    } catch (error) {
+        console.error('Error resolving issue:', error);
+        showNotification('error', 'Error resolving issue');
+    }
+}
+
+// ==================== RISK SCORE FUNCTIONS ====================
+
+async function getRiskScore() {
+    const taxpayerId = document.getElementById('risk-taxpayer-id')?.value;
+    const fiscalYear = document.getElementById('risk-fiscal-year')?.value || 2024;
+    
+    if (!taxpayerId) {
+        alert('Please enter a Taxpayer ID');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('risk-score-result');
+    if (resultDiv) {
+        resultDiv.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading risk score...</div>';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/risk/${taxpayerId}/${fiscalYear}`);
+        
+        if (!response.ok) {
+            throw new Error('No risk score found');
+        }
+        
+        const data = await response.json();
+        const riskScore = data.governance_risk_score;
+        
+        let riskClass = '';
+        let riskIcon = '';
+        if (riskScore >= 70) {
+            riskClass = 'risk-high';
+            riskIcon = '<i class="fas fa-exclamation-triangle"></i>';
+        } else if (riskScore >= 40) {
+            riskClass = 'risk-medium';
+            riskIcon = '<i class="fas fa-chart-line"></i>';
+        } else {
+            riskClass = 'risk-low';
+            riskIcon = '<i class="fas fa-check-circle"></i>';
+        }
+        
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="risk-result ${riskClass}">
+                    <h4>${riskIcon} Risk Assessment Result</h4>
+                    <div class="risk-score">${riskScore.toFixed(1)} / 100</div>
+                    <div><strong>Risk Category:</strong> ${data.risk_category}</div>
+                    <div><strong>Interpretation:</strong> ${data.interpretation}</div>
+                    <button onclick="refreshRiskScore(${taxpayerId}, ${fiscalYear})" class="btn-secondary" style="margin-top: 10px;">
+                        <i class="fas fa-refresh"></i> Refresh Score
+                    </button>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="risk-result">
+                    <p class="no-data">No risk score found for Taxpayer ${taxpayerId}, Year ${fiscalYear}</p>
+                    <button onclick="computeRiskScore(${taxpayerId}, ${fiscalYear})" class="btn-primary" style="margin-top: 10px;">
+                        <i class="fas fa-calculator"></i> Compute Now
+                    </button>
+                </div>
+            `;
+        }
+    }
+}
+
+async function loadRiskHistory() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/risk-history`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#risk-history-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">No risk history available</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(item => `
+            <tr>
+                <td><strong>${item.taxpayer_id}</strong></td>
+                <td>${item.taxpayer_name || 'N/A'}</td>
+                <td>${item.fiscal_year}</td>
+                <td><strong>${item.governance_risk_score}</strong></td>
+                <td><span class="risk-badge ${getRiskBadgeClass(item.risk_category)}">${item.risk_category}</span></td>
+                <td>
+                    <button onclick="viewRiskDetails(${item.taxpayer_id}, ${item.fiscal_year})" class="btn-secondary" style="padding: 5px 10px;">
+                        View Details
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading risk history:', error);
+        const tbody = document.querySelector('#risk-history-table tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Error loading risk history</td></tr>';
+        }
+    }
+}
+async function refreshRiskScore(taxpayerId, fiscalYear) {
+    showNotification('info', 'Refreshing risk score...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/risk/${taxpayerId}/${fiscalYear}/refresh`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Risk score refreshed');
+            setTimeout(() => getRiskScore(), 1000);
+        } else {
+            throw new Error('Refresh failed');
+        }
+    } catch (error) {
+        showNotification('error', 'Error refreshing risk score');
+    }
+}
+
+async function computeRiskScore(taxpayerId, fiscalYear) {
+    showNotification('info', 'Computing risk score...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/risk/${taxpayerId}/${fiscalYear}/refresh`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Risk score computation started');
+            setTimeout(() => getRiskScore(), 2000);
+        } else {
+            throw new Error('Computation failed');
+        }
+    } catch (error) {
+        showNotification('error', 'Error computing risk score');
+    }
+}
+
+
+
+function viewRiskDetails(taxpayerId, fiscalYear) {
+    const riskTaxpayerId = document.getElementById('risk-taxpayer-id');
+    const riskFiscalYear = document.getElementById('risk-fiscal-year');
+    
+    if (riskTaxpayerId) riskTaxpayerId.value = taxpayerId;
+    if (riskFiscalYear) riskFiscalYear.value = fiscalYear;
+    
+    const riskTab = document.querySelector('[data-tab="risk"]');
+    if (riskTab) riskTab.click();
+    
+    setTimeout(() => getRiskScore(), 100);
+}
+
+
+// ==================== RISK SCORES WITH VALIDATION ISSUES ====================
+
+let riskCompaniesData = [];
+let currentRiskYear = 2024;
+
+async function loadRiskCompanies() {
+    const year = document.getElementById('risk-year-filter')?.value || 2024;
+    currentRiskYear = parseInt(year);
+    const grid = document.getElementById('risk-companies-grid');
+    
+    if (!grid) return;
+    
+    grid.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading companies...</div>';
+    
+    try {
+        // Get all companies
+        const companiesResponse = await fetch(`${API_BASE}/governance/behavioral/companies`);
+        const companies = await companiesResponse.json();
+        
+        // Get risk scores for each company
+        const riskPromises = companies.map(async (company) => {
+            try {
+                const riskResponse = await fetch(`${API_BASE}/governance/risk/${company.id}/${currentRiskYear}`);
+                if (riskResponse.ok) {
+                    const riskData = await riskResponse.json();
+                    return {
+                        ...company,
+                        risk_score: riskData.governance_risk_score,
+                        risk_category: riskData.risk_category,
+                        interpretation: riskData.interpretation
+                    };
+                }
+            } catch (e) {
+                console.log(`No risk score for company ${company.id}`);
+            }
+            return {
+                ...company,
+                risk_score: null,
+                risk_category: 'Not Assessed',
+                interpretation: 'No risk score available'
+            };
+        });
+        
+        riskCompaniesData = await Promise.all(riskPromises);
+        
+        // Update stats
+        updateRiskStats();
+        
+        // Render companies
+        renderRiskCompanies(riskCompaniesData);
+        
+    } catch (error) {
+        console.error('Error loading risk companies:', error);
+        grid.innerHTML = '<p class="error-message">Error loading companies</p>';
+    }
+}
+
+function updateRiskStats() {
+    let highCount = 0, mediumCount = 0, lowCount = 0;
+    
+    riskCompaniesData.forEach(company => {
+        if (company.risk_score !== null) {
+            if (company.risk_score >= 70) highCount++;
+            else if (company.risk_score >= 40) mediumCount++;
+            else lowCount++;
+        }
+    });
+    
+    document.getElementById('risk-high-count').innerText = highCount;
+    document.getElementById('risk-medium-count').innerText = mediumCount;
+    document.getElementById('risk-low-count').innerText = lowCount;
+    document.getElementById('risk-total-count').innerText = riskCompaniesData.length;
+}
+
+function renderRiskCompanies(companies) {
+    const grid = document.getElementById('risk-companies-grid');
+    const searchTerm = document.getElementById('risk-search')?.value?.toLowerCase() || '';
+    const filterType = document.getElementById('risk-filter-type')?.value || '';
+    
+    let filtered = companies;
+    
+    if (searchTerm) {
+        filtered = filtered.filter(c => 
+            c.company_name.toLowerCase().includes(searchTerm) || 
+            c.id.toString().includes(searchTerm)
+        );
+    }
+    
+    if (filterType === 'high') {
+        filtered = filtered.filter(c => c.risk_score >= 70);
+    } else if (filterType === 'medium') {
+        filtered = filtered.filter(c => c.risk_score >= 40 && c.risk_score < 70);
+    } else if (filterType === 'low') {
+        filtered = filtered.filter(c => c.risk_score < 40 && c.risk_score !== null);
+    }
+    
+    if (filtered.length === 0) {
+        grid.innerHTML = '<div class="etr-empty"><i class="fas fa-chart-line"></i><p>No companies match your criteria</p></div>';
+        return;
+    }
+    
+    grid.innerHTML = filtered.map(company => {
+        let riskClass = 'low';
+        let riskScoreDisplay = 'N/A';
+        
+        if (company.risk_score !== null) {
+            riskScoreDisplay = company.risk_score.toFixed(1);
+            if (company.risk_score >= 70) riskClass = 'high';
+            else if (company.risk_score >= 40) riskClass = 'medium';
+            else riskClass = 'low';
+        }
+        
+        return `
+            <div class="risk-company-card" onclick="showCompanyDetails(${company.id})">
+                <div class="risk-company-header ${riskClass}">
+                    <span class="risk-company-name">${escapeHtml(company.company_name)}</span>
+                    <span class="risk-score-badge ${riskClass}">${riskScoreDisplay}</span>
+                </div>
+                <div class="risk-company-body">
+                    <div class="risk-metrics">
+                        <div class="risk-metric">
+                            <div class="risk-metric-label">Industry</div>
+                            <div class="risk-metric-value" style="font-size: 14px;">${escapeHtml(company.industry || 'N/A')}</div>
+                        </div>
+                        <div class="risk-metric">
+                            <div class="risk-metric-label">Available Years</div>
+                            <div class="risk-metric-value" style="font-size: 14px;">${company.available_years?.join(', ') || 'None'}</div>
+                        </div>
+                    </div>
+                    <div class="risk-actions">
+                        <button class="risk-btn risk-btn-primary" onclick="event.stopPropagation(); showRiskDetails(${company.id})">
+                            <i class="fas fa-chart-line"></i> Risk Details
+                        </button>
+                        <button class="risk-btn risk-btn-secondary" onclick="event.stopPropagation(); showValidationIssues(${company.id})">
+                            <i class="fas fa-check-double"></i> Validation Issues
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterRiskCompanies(type) {
+    const searchInput = document.getElementById('risk-search');
+    const yearSelect = document.getElementById('risk-year-filter');
+    
+    if (type === 'high' || type === 'medium' || type === 'low' || type === 'all') {
+        document.getElementById('risk-filter-type').value = type;
+        renderRiskCompanies(riskCompaniesData);
+    } else {
+        renderRiskCompanies(riskCompaniesData);
+    }
+}
+
+async function showRiskDetails(companyId) {
+    const modal = document.getElementById('risk-details-modal');
+    const content = document.getElementById('risk-details-content');
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading risk details...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/risk/${companyId}/${currentRiskYear}`);
+        
+        if (!response.ok) {
+            throw new Error('Risk data not found');
+        }
+        
+        const data = await response.json();
+        const company = riskCompaniesData.find(c => c.id === companyId);
+        
+        let riskClass = '';
+        if (data.governance_risk_score >= 70) riskClass = 'high';
+        else if (data.governance_risk_score >= 40) riskClass = 'medium';
+        else riskClass = 'low';
+        
+        content.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <h3>${escapeHtml(company?.company_name || `Company ${companyId}`)} - ${currentRiskYear}</h3>
+                <p><i class="fas fa-chart-line"></i> ${escapeHtml(company?.industry || 'N/A')}</p>
+            </div>
+            
+            <div class="behavior-card ${riskClass}" style="margin-bottom: 20px;">
+                <div class="behavior-header">
+                    <div class="behavior-title">Risk Assessment</div>
+                    <span class="behavior-risk ${riskClass}">${data.risk_category}</span>
+                </div>
+                <div class="behavior-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Risk Score</div>
+                        <div class="metric-value">${data.governance_risk_score.toFixed(1)} / 100</div>
+                    </div>
+                </div>
+                <div class="risk-factors">
+                    <strong>Interpretation:</strong> ${data.interpretation}
+                </div>
+            </div>
+            
+            <div style="background: #f8fafc; border-radius: 8px; padding: 15px;">
+                <h4><i class="fas fa-info-circle"></i> About Risk Scoring</h4>
+                <p style="font-size: 13px; margin-top: 8px;">
+                    Risk scores are calculated based on governance factors including board independence, 
+                    financial expertise and diversity. Higher scores indicate higher tax compliance risk.
+                </p>
+                <ul style="margin-top: 10px; font-size: 12px;">
+                    <li><strong class="risk-high">70-100:</strong> High Risk - Immediate attention recommended</li>
+                    <li><strong class="risk-medium">40-69:</strong> Medium Risk - Monitor closely</li>
+                    <li><strong class="risk-low">0-39:</strong> Low Risk - Compliant</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="closeRiskModal()" class="btn-secondary">Close</button>
+            </div>
+        `;
+        
+    } catch (error) {
+        content.innerHTML = `<p class="error-message">Error loading risk details: ${error.message}</p>`;
+    }
+}
+
+async function showValidationIssues(companyId) {
+    const modal = document.getElementById('validation-modal');
+    const content = document.getElementById('validation-details-content');
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading validation issues...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/validation-issues?taxpayer_id=${companyId}&status=Open`);
+        const issues = await response.json();
+        const company = riskCompaniesData.find(c => c.id === companyId);
+        
+        if (!issues || issues.length === 0) {
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <i class="fas fa-check-circle" style="font-size: 48px; color: #16a34a;"></i>
+                    <h3>No Validation Issues</h3>
+                    <p>This company has no open validation issues for ${currentRiskYear}.</p>
+                    <button onclick="closeValidationModal()" class="btn-primary" style="margin-top: 20px;">Close</button>
+                </div>
+            `;
+            return;
+        }
+        
+        content.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <h3>${escapeHtml(company?.company_name || `Company ${companyId}`)} - ${currentRiskYear}</h3>
+                <p><i class="fas fa-chart-line"></i> ${escapeHtml(company?.industry || 'N/A')}</p>
+                <div class="validation-list">
+                    ${issues.map(issue => `
+                        <div class="validation-item ${issue.severity.toLowerCase()}">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <strong>${escapeHtml(issue.issue_type)}</strong>
+                                <span class="risk-badge ${issue.severity.toLowerCase()}">${issue.severity}</span>
+                            </div>
+                            <p style="margin: 8px 0; font-size: 13px;">${escapeHtml(issue.description)}</p>
+                            <div style="font-size: 11px; color: #64748b;">
+                                <strong>Field:</strong> ${issue.field_name || 'N/A'} | 
+                                <strong>Expected:</strong> ${issue.expected_value || 'N/A'} | 
+                                <strong>Actual:</strong> ${issue.actual_value || 'N/A'}
+                            </div>
+                            ${issue.status === 'Open' ? 
+                                `<button onclick="resolveValidationIssueFromModal(${issue.id})" class="btn-secondary" style="margin-top: 8px; padding: 4px 12px; font-size: 11px;">
+                                    <i class="fas fa-check"></i> Resolve Issue
+                                </button>` : ''
+                            }
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="closeValidationModal()" class="btn-secondary">Close</button>
+            </div>
+        `;
+        
+    } catch (error) {
+        content.innerHTML = `<p class="error-message">Error loading validation issues: ${error.message}</p>`;
+    }
+}
+
+async function resolveValidationIssueFromModal(issueId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/validation-issues/${issueId}/resolve`, {
+            method: 'PUT'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Validation issue resolved');
+            // Refresh the current view
+            showValidationIssues(riskCompaniesData.find(c => c.id === issueId)?.id);
+            loadRiskCompanies();
+        } else {
+            showNotification('error', 'Failed to resolve issue');
+        }
+    } catch (error) {
+        console.error('Error resolving issue:', error);
+        showNotification('error', 'Error resolving issue');
+    }
+}
+
+async function showCompanyDetails(companyId) {
+    const modal = document.getElementById('company-details-modal');
+    const content = document.getElementById('company-details-content');
+    const company = riskCompaniesData.find(c => c.id === companyId);
+    
+    if (!company) return;
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading company details...</div>';
+    
+    try {
+        // Get risk score
+        const riskResponse = await fetch(`${API_BASE}/governance/risk/${companyId}/${currentRiskYear}`);
+        let riskData = null;
+        if (riskResponse.ok) {
+            riskData = await riskResponse.json();
+        }
+        
+        // Get validation issues
+        const issuesResponse = await fetch(`${API_BASE}/governance/validation-issues?taxpayer_id=${companyId}&status=Open`);
+        const issues = await issuesResponse.json();
+        
+        // Get tax returns
+        const returnsResponse = await fetch(`${API_BASE}/governance/tax-returns/${companyId}`);
+        let taxReturns = [];
+        if (returnsResponse.ok) {
+            taxReturns = await returnsResponse.json();
+        }
+        
+        let riskClass = 'low';
+        if (riskData && riskData.governance_risk_score >= 70) riskClass = 'high';
+        else if (riskData && riskData.governance_risk_score >= 40) riskClass = 'medium';
+        
+        content.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <h3>${escapeHtml(company.company_name)}</h3>
+                <p><i class="fas fa-chart-line"></i> ${escapeHtml(company.industry || 'N/A')} | <i class="fas fa-building"></i> ID: ${company.id}</p>
+            </div>
+            
+            <div class="behavior-card ${riskClass}" style="margin-bottom: 20px;">
+                <div class="behavior-header">
+                    <div class="behavior-title">Risk Summary</div>
+                    <span class="behavior-risk ${riskClass}">${riskData?.risk_category || 'Not Assessed'}</span>
+                </div>
+                <div class="behavior-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Risk Score</div>
+                        <div class="metric-value">${riskData?.governance_risk_score?.toFixed(1) || 'N/A'}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Validation Issues</div>
+                        <div class="metric-value">${issues?.length || 0}</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Available Years</div>
+                        <div class="metric-value">${company.available_years?.length || 0}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                <button onclick="showRiskDetails(${company.id})" class="risk-btn risk-btn-primary" style="flex: 1;">
+                    <i class="fas fa-chart-line"></i> View Risk Details
+                </button>
+                <button onclick="showValidationIssues(${company.id})" class="risk-btn risk-btn-secondary" style="flex: 1;">
+                    <i class="fas fa-check-double"></i> View Validation Issues (${issues?.length || 0})
+                </button>
+            </div>
+            
+            ${taxReturns && taxReturns.length > 0 ? `
+            <div style="background: #f8fafc; border-radius: 8px; padding: 15px;">
+                <h4><i class="fas fa-chart-bar"></i> Recent Tax Returns</h4>
+                <table style="width: 100%; margin-top: 10px; font-size: 12px;">
+                    <thead>
+                        <tr><th>Year</th><th>Income</th><th>Profit</th><th>Tax Liability</th></tr>
+                    </thead>
+                    <tbody>
+                        ${taxReturns.slice(0, 5).map(tr => `
+                            <tr>
+                                <td>${tr.fiscal_year}</td>
+                                <td>$${(tr.total_income || 0).toLocaleString()}</td>
+                                <td>$${(tr.accounting_profit || 0).toLocaleString()}</td>
+                                <td>$${(tr.tax_liability || 0).toLocaleString()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ` : ''}
+            
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="closeCompanyModal()" class="btn-secondary">Close</button>
+            </div>
+        `;
+        
+    } catch (error) {
+        content.innerHTML = `<p class="error-message">Error loading company details: ${error.message}</p>`;
+    }
+}
+
+function closeRiskModal() {
+    document.getElementById('risk-details-modal').style.display = 'none';
+}
+
+function closeValidationModal() {
+    document.getElementById('validation-modal').style.display = 'none';
+}
+
+function closeCompanyModal() {
+    document.getElementById('company-details-modal').style.display = 'none';
+}
+
+function refreshRiskData() {
+    loadRiskCompanies();
+}
+
+function exportRiskReport() {
+    const year = currentRiskYear;
+    const csvRows = [['Company ID', 'Company Name', 'Industry', 'Risk Score', 'Risk Category', 'Interpretation']];
+    
+    riskCompaniesData.forEach(company => {
+        csvRows.push([
+            company.id,
+            company.company_name,
+            company.industry || 'N/A',
+            company.risk_score !== null ? company.risk_score.toFixed(1) : 'N/A',
+            company.risk_category || 'Not Assessed',
+            company.interpretation || ''
+        ]);
+    });
+    
+    const csvContent = csvRows.map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `risk_report_${year}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    showNotification('success', 'Risk report exported successfully');
+}
+
+// Add filter type select to the action bar
+// Also add hidden filter input
+if (document.querySelector('.search-group')) {
+    const filterSelect = document.createElement('select');
+    filterSelect.id = 'risk-filter-type';
+    filterSelect.className = 'filter-select';
+    filterSelect.style.marginLeft = '10px';
+    filterSelect.innerHTML = `
+        <option value="all">All Risk Levels</option>
+        <option value="high">High Risk Only</option>
+        <option value="medium">Medium Risk Only</option>
+        <option value="low">Low Risk Only</option>
+    `;
+    filterSelect.onchange = () => renderRiskCompanies(riskCompaniesData);
+    document.querySelector('.search-group').appendChild(filterSelect);
+}
+
+// Initialize Risk Scores tab
+if (document.getElementById('risk-companies-grid')) {
+    loadRiskCompanies();
+}
+
+// Load user info from localStorage (not from API)
+function loadUserInfo() {
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const userNameElement = document.getElementById('user-name');
+        const userRoleElement = document.getElementById('user-role');
+        
+        if (userNameElement) {
+            userNameElement.textContent = user.full_name || user.username || 'User';
+        }
+        if (userRoleElement) {
+            userRoleElement.textContent = user.role ? user.role.toUpperCase() : 'VIEWER';
+        }
+        
+        // Show/hide admin elements based on role
+        if (user.role !== 'admin') {
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+        }
+    } catch (error) {
+        console.error('Error loading user info:', error);
+        // Set defaults
+        const userNameElement = document.getElementById('user-name');
+        const userRoleElement = document.getElementById('user-role');
+        if (userNameElement) userNameElement.textContent = 'Compliance Officer';
+        if (userRoleElement) userRoleElement.textContent = 'COMPLIANCE';
+    }
+}
+
+// Call on page load
+document.addEventListener('DOMContentLoaded', loadUserInfo);
+
+function logout() {
+    window.location.href = '/logout';
+}
+
+// Call on page load
+document.addEventListener('DOMContentLoaded', loadUserInfo);
+
+
+// ==================== BEHAVIORAL ALERTS ====================
+
+async function loadBehavioralAlerts() {
+    const statusFilter = document.getElementById('behavioral-status-filter');
+    const severityFilter = document.getElementById('behavioral-severity-filter');
+    
+    let url = `${API_BASE}/governance/behavioral-alerts`;
+    const params = new URLSearchParams();
+    
+    if (statusFilter && statusFilter.value) params.append('status', statusFilter.value);
+    if (severityFilter && severityFilter.value) params.append('severity', severityFilter.value);
+    
+    if (params.toString()) url += `?${params.toString()}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#behavioral-alerts-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center">No behavioral alerts found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(alert => `
+            <tr>
+                <td>${alert.id}</td>
+                <td><strong>${alert.taxpayer_id}</strong><br><small>${alert.taxpayer_name || ''}</small></td>
+                <td>${alert.fiscal_year}</td>
+                <td>${alert.alert_type}</td>
+                <td>
+                    <div class="confidence-bar" style="width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                        <div class="confidence-fill" style="width: ${alert.confidence_score * 100}%; height: 100%; background: #1a472a; border-radius: 3px;"></div>
+                    </div>
+                    <small>${Math.round(alert.confidence_score * 100)}%</small>
+                </td>
+                <td><span class="risk-badge ${alert.severity.toLowerCase()}">${alert.severity}</span></td>
+                <td>${alert.description}</td>
+                <td><span class="status-badge ${alert.status.toLowerCase()}">${alert.status}</span></td>
+                <td>
+                    ${alert.status === 'New' ? `<button onclick="dismissBehavioralAlert(${alert.id})" class="btn-secondary" style="padding: 5px 10px;">Dismiss</button>` : '-'}
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading behavioral alerts:', error);
+    }
+}
+
+async function dismissBehavioralAlert(alertId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral-alerts/${alertId}/dismiss`, {
+            method: 'PUT'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Alert dismissed');
+            loadBehavioralAlerts();
+        } else {
+            showNotification('error', 'Failed to dismiss alert');
+        }
+    } catch (error) {
+        console.error('Error dismissing alert:', error);
+        showNotification('error', 'Error dismissing alert');
+    }
+}
+
+// ==================== ETR ALERTS ====================
+
+async function loadETRAlerts() {
+    const statusFilter = document.getElementById('etr-status-filter');
+    
+    let url = `${API_BASE}/governance/etr-alerts`;
+    if (statusFilter && statusFilter.value) url += `?status=${statusFilter.value}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#etr-alerts-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center">No ETR alerts found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(alert => `
+            <tr>
+                <td>${alert.id}</td>
+                <td><strong>${alert.taxpayer_id}</strong><br><small>${alert.taxpayer_name || ''}</small></td>
+                <td>${alert.fiscal_year}</td>
+                <td><strong>${alert.computed_etr}%</strong></td>
+                <td>${alert.variance > 0 ? '-' : '+'}${Math.abs(alert.variance).toFixed(1)}%</td>
+                <td><span class="risk-badge ${alert.alert_type.includes('HIGH') ? 'high' : 'medium'}">${alert.alert_type.replace(/_/g, ' ')}</span></td>
+                <td><span class="risk-badge ${alert.severity.toLowerCase()}">${alert.severity}</span></td>
+                <td><span class="status-badge ${alert.status.toLowerCase()}">${alert.status}</span></td>
+                <td>${alert.description}</td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading ETR alerts:', error);
+    }
+}
+
+// ==================== AUDIT CASE FUNCTIONS ====================
+
+async function generateAuditCases() {
+    const fiscalYear = document.getElementById('audit-fiscal-year').value;
+    const riskThreshold = document.getElementById('audit-risk-threshold').value;
+    
+    showNotification('info', `Generating audit cases for ${fiscalYear}...`);
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/audit/generate-cases`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                fiscal_year: parseInt(fiscalYear),
+                risk_threshold: parseInt(riskThreshold)
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification('success', `Generated ${data.audit_cases.length} audit cases`);
+            loadAuditCases();
+        } else {
+            showNotification('error', data.error || 'Failed to generate audit cases');
+        }
+    } catch (error) {
+        console.error('Error generating audit cases:', error);
+        showNotification('error', 'Error generating audit cases');
+    }
+}
+
+async function loadAuditCases() {
+    const statusFilter = document.getElementById('audit-status-filter').value;
+    let url = `${API_BASE}/governance/audit-cases`;
+    if (statusFilter) url += `?status=${statusFilter}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#audit-cases-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit cases found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(audit => `
+            <tr>
+                <td>${audit.id}</td>
+                <td><strong>${audit.taxpayer_id}</strong><br><small>${audit.taxpayer_name || ''}</small></td>
+                <td>${formatDate(audit.audit_date)}</td>
+                <td><span class="risk-badge ${audit.risk_score >= 70 ? 'high' : audit.risk_score >= 40 ? 'medium' : 'low'}">${audit.risk_score || 'N/A'}</span></td>
+                <td><span class="status-badge ${audit.priority === 'Urgent' ? 'high' : 'medium'}">${audit.priority || 'Medium'}</span></td>
+                <td>${audit.findings ? audit.findings.substring(0, 100) + '...' : '-'}</td>
+                <td><span class="status-badge ${audit.outcome === 'Closed' ? 'resolved' : 'open'}">${audit.outcome || 'Pending'}</span></td>
+                <td>
+                    <button onclick="viewAuditDetails(${audit.id})" class="btn-secondary" style="padding: 5px 10px;">
+                        <i class="fas fa-eye"></i> View
+                    </button>
+                    <button onclick="exportAuditReport(${audit.id})" class="btn-primary" style="padding: 5px 10px;">
+                        <i class="fas fa-file-pdf"></i> PDF
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading audit cases:', error);
+    }
+}
+
+async function viewAuditDetails(auditId) {
+    // Fetch and display audit details in a modal
+    try {
+        const response = await fetch(`${API_BASE}/governance/audit-cases/${auditId}`);
+        const audit = await response.json();
+        
+        // Create modal or navigate to details page
+        showNotification('info', `Viewing audit case ${auditId}`);
+        // You can implement a details modal here
+    } catch (error) {
+        console.error('Error loading audit details:', error);
+    }
+}
+
+async function exportAuditReport(auditId) {
+    showNotification('info', 'Generating PDF report...');
+    
+    try {
+        // Open PDF in new tab
+        window.open(`${API_BASE}/governance/audit/cases/generate-report/${auditId}`, '_blank');
+        showNotification('success', 'PDF report generated');
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        showNotification('error', 'Error generating PDF report');
+    }
+}
+
+async function exportAllAuditReports() {
+    showNotification('info', 'Generating all audit reports...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/audit-cases`);
+        const audits = await response.json();
+        
+        for (const audit of audits) {
+            // Open each PDF in a new tab (browser may block multiple popups)
+            window.open(`${API_BASE}/governance/audit/cases/generate-report/${audit.id}`, '_blank');
+            // Small delay to prevent browser blocking
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        showNotification('success', `Generated ${audits.length} PDF reports`);
+    } catch (error) {
+        console.error('Error generating reports:', error);
+        showNotification('error', 'Error generating reports');
+    }
+}
+// ==================== AUDIT FUNCTIONS ====================
+
+async function loadAuditCases() {
+    const outcomeFilter = document.getElementById('audit-status-filter');
+    
+    let url = `${API_BASE}/governance/audit-cases`;
+    if (outcomeFilter && outcomeFilter.value) url += `?status=${outcomeFilter.value}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#audit-cases-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit cases found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(audit => `
+            <tr>
+                <td>${audit.id}</td>
+                <td><strong>${audit.taxpayer_id}</strong><br><small>${audit.taxpayer_name || ''}</small></td>
+                <td>${formatDate(audit.audit_date)}</td>
+                <td>${audit.findings || '-'}</td>
+                <td>$${Number(audit.additional_assessment).toLocaleString()}</td>
+                <td>$${Number(audit.penalties).toLocaleString()}</td>
+                <td><span class="risk-badge ${audit.outcome === 'Compliant' ? 'low' : 'high'}">${audit.outcome}</span></td>
+                <td>${audit.recommendation || '-'}</td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading audit cases:', error);
+    }
+}
+
+async function createAuditCase(e) {
+    e.preventDefault();
+    
+    const data = {
+        taxpayer_id: parseInt(document.getElementById('audit-taxpayer-id').value),
+        audit_date: document.getElementById('audit-date').value,
+        findings: document.getElementById('audit-findings').value,
+        additional_assessment: parseFloat(document.getElementById('audit-assessment').value) || 0,
+        penalties: parseFloat(document.getElementById('audit-penalties').value) || 0,
+        outcome: document.getElementById('audit-outcome').value,
+        recommendation: document.getElementById('audit-recommendation').value
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/audit-cases`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Audit case created');
+            document.getElementById('audit-case-form').reset();
+            loadAuditCases();
+        } else {
+            const error = await response.json();
+            showNotification('error', `Error: ${error.error || 'Creation failed'}`);
+        }
+    } catch (error) {
+        console.error('Error creating audit case:', error);
+        showNotification('error', 'Error creating audit case');
+    }
+}
+
+// ==================== GOVERNANCE FUNCTIONS ====================
+
+async function submitGovernanceData(e) {
+    e.preventDefault();
+    
+    const data = {
+        taxpayer_id: parseInt(document.getElementById('gov-taxpayer-id').value),
+        fiscal_year: parseInt(document.getElementById('gov-fiscal-year').value),
+        board_size: parseInt(document.getElementById('gov-board-size').value) || null,
+        independent_directors: parseInt(document.getElementById('gov-independent').value) || null,
+        financial_experts: parseInt(document.getElementById('gov-experts').value) || null,
+        female_directors: parseInt(document.getElementById('gov-female').value) || null,
+        ceo_duality: document.getElementById('gov-ceo-duality').checked,
+        source: document.getElementById('gov-source').value
+    };
+    
+    if (!data.taxpayer_id || !data.fiscal_year) {
+        alert('Please fill in Taxpayer ID and Fiscal Year');
+        return;
+    }
+    
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+    submitBtn.disabled = true;
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/raw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Governance data submitted successfully!');
+            document.getElementById('governance-form').reset();
+            loadDashboardStats();
+        } else {
+            const error = await response.json();
+            showNotification('error', `Error: ${error.error || 'Submission failed'}`);
+        }
+    } catch (error) {
+        console.error('Error submitting data:', error);
+        showNotification('error', 'Network error. Please try again.');
+    } finally {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+async function searchGovernance() {
+    const taxpayerId = document.getElementById('search-taxpayer').value;
+    const fiscalYear = 2024;
+    
+    if (!taxpayerId) {
+        alert('Please enter a Taxpayer ID');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('governance-indicators-result');
+    if (resultDiv) {
+        resultDiv.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/indicators/${taxpayerId}/${fiscalYear}`);
+        
+        if (!response.ok) {
+            throw new Error('No data found');
+        }
+        
+        const data = await response.json();
+        const indicators = data.indicators;
+        
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <h4>Governance Indicators for Taxpayer ${taxpayerId} (${fiscalYear})</h4>
+                <div class="indicator-grid">
+                    <div class="indicator-item">
+                        <div class="indicator-label">Board Size</div>
+                        <div class="indicator-value">${indicators.board_size || 0}</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="indicator-label">Independence Ratio</div>
+                        <div class="indicator-value">${indicators.independence_ratio || 0}%</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="indicator-label">Expertise Score</div>
+                        <div class="indicator-value">${indicators.expertise_score || 0}%</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="indicator-label">Diversity Index</div>
+                        <div class="indicator-value">${indicators.diversity_index || 0}%</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="indicator-label">CEO Duality</div>
+                        <div class="indicator-value">${indicators.ceo_duality ? 'Yes' : 'No'}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-circle"></i> 
+                    No governance data found for Taxpayer ${taxpayerId}, Year ${fiscalYear}
+                </div>
+            `;
+        }
+    }
+}
+
+// ==================== REPORT FUNCTIONS ====================
+
+async function loadReports() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/reports`);
+        const data = await response.json();
+        
+        const tbody = document.querySelector('#reports-table tbody');
+        if (!tbody) return;
+        
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '^<td colspan="5" class="text-center">No reports generated</td>^';
+            return;
+        }
+        
+        tbody.innerHTML = data.map(report => `
+            <tr>
+                <td>${report.id}</td>
+                <td>${report.report_type.replace('-', ' ').toUpperCase()}</td>
+                <td>${report.fiscal_year}</td>
+                <td>${formatDate(report.generated_at)}</td>
+                <td>
+                    <div style="display: flex; gap: 5px;">
+                        <button onclick="downloadReportFile(${report.id})" class="btn-secondary" style="padding: 5px 10px;" title="Download">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button onclick="exportReport('${report.report_type}', ${report.fiscal_year})" class="btn-secondary" style="padding: 5px 10px;" title="Export JSON">
+                            <i class="fas fa-file-code"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading reports:', error);
+    }
+}
+
+async function generateReport() {
+    const reportType = document.getElementById('report-type').value;
+    const fiscalYear = document.getElementById('report-year').value;
+    
+    const resultDiv = document.getElementById('report-result');
+    if (resultDiv) {
+        resultDiv.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Generating report...</div>';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/reports/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                report_type: reportType, 
+                fiscal_year: parseInt(fiscalYear) 
+            })
+        });
+        
+        if (response.ok) {
+            // Get the PDF blob
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `compliance_report_${reportType}_${fiscalYear}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            if (resultDiv) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> 
+                        Report generated and downloaded successfully!
+                    </div>
+                `;
+            }
+            
+            // Refresh reports list
+            loadReports();
+            
+            // Clear success message after 3 seconds
+            setTimeout(() => {
+                if (resultDiv) resultDiv.innerHTML = '';
+            }, 3000);
+            
+        } else {
+            const error = await response.json();
+            if (resultDiv) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-error">
+                        <i class="fas fa-exclamation-circle"></i> 
+                        Error: ${error.error || 'Failed to generate report'}
+                    </div>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('Error generating report:', error);
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-error">
+                    <i class="fas fa-exclamation-circle"></i> 
+                    Error generating report. Please try again.
+                </div>
+            `;
+        }
+    }
+}
+
+async function downloadReportFile(reportId) {
+    showNotification('info', 'Preparing report download...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/reports/${reportId}/download`);
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report_${reportId}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            showNotification('success', 'Report downloaded successfully');
+        } else {
+            throw new Error('Download failed');
+        }
+    } catch (error) {
+        console.error('Error downloading report:', error);
+        showNotification('error', 'Error downloading report');
+    }
+}
+
+async function exportReport(reportType, fiscalYear) {
+    showNotification('info', 'Exporting report as CSV...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/reports/export/${reportType}/${fiscalYear}`);
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `compliance_export_${reportType}_${fiscalYear}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            showNotification('success', 'Report exported successfully as CSV');
+        } else {
+            const error = await response.json();
+            showNotification('error', error.error || 'Failed to export report');
+        }
+    } catch (error) {
+        console.error('Error exporting report:', error);
+        showNotification('error', 'Error exporting report');
+    }
+}
+
+// ==================== ETR FUNCTIONS ====================
+
+async function calculateETR() {
+    const taxpayerId = document.getElementById('etr-taxpayer-id').value;
+    const fiscalYear = document.getElementById('etr-fiscal-year').value;
+    
+    if (!taxpayerId) {
+        alert('Please enter a Taxpayer ID');
+        return;
+    }
+    
+    const resultDiv = document.getElementById('etr-result');
+    if (resultDiv) {
+        resultDiv.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Calculating ETR...</div>';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/etr/calculate/${taxpayerId}/${fiscalYear}`);
+        
+        if (!response.ok) {
+            throw new Error('Calculation failed');
+        }
+        
+        const data = await response.json();
+        
+        let riskClass = '';
+        if (data.risk_level.includes('High')) riskClass = 'risk-high';
+        else if (data.risk_level.includes('Medium')) riskClass = 'risk-medium';
+        else riskClass = 'risk-low';
+        
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="risk-result ${riskClass}">
+                    <h4><i class="fas fa-percent"></i> Effective Tax Rate Analysis</h4>
+                    <div class="risk-score">${data.etr}%</div>
+                    <div class="indicator-grid" style="margin-top: 15px;">
+                        <div class="indicator-item">
+                            <div class="indicator-label">Statutory Rate</div>
+                            <div class="indicator-value">${data.statutory_rate}%</div>
+                        </div>
+                        <div class="indicator-item">
+                            <div class="indicator-label">Variance</div>
+                            <div class="indicator-value">${data.variance}%</div>
+                        </div>
+                        <div class="indicator-item">
+                            <div class="indicator-label">Risk Level</div>
+                            <div class="indicator-value">${data.risk_level}</div>
+                        </div>
+                    </div>
+                    <div><strong>Recommendation:</strong> ${data.recommendation}</div>
+                </div>
+            `;
+        }
+        
+    } catch (error) {
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div class="risk-result">
+                    <p class="no-data">Error calculating ETR for Taxpayer ${taxpayerId}</p>
+                </div>
+            `;
+        }
+    }
+}
+
+function calculateETRForAll() {
+    showNotification('info', 'Batch ETR calculation will be available soon');
+}
+
+// ==================== NOTIFICATION SYSTEM ====================
+
+function showNotification(type, message) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
+        <span>${escapeHtml(message)}</span>
+        <button onclick="this.parentElement.remove()">&times;</button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.remove();
+        }
+    }, 3000);
+}
+
+// ==================== REFRESH ALL DATA ====================
+
+function refreshData() {
+    showNotification('info', 'Refreshing dashboard data...');
+    
+    loadDashboardStats();
+    loadRecentAssessments();
+    loadRecentAlerts();
+    loadValidationIssues();
+    loadRiskHistory();
+    loadBehavioralAlerts();
+    loadETRAlerts();
+    loadAuditCases();
+    loadReports();
+    
+    setTimeout(() => {
+        showNotification('success', 'Dashboard refreshed successfully');
+    }, 1000);
+}
+
+// ==================== ETR ANALYSIS FUNCTIONS ====================
+
+
+let etrAnalysisCache = {};
+
+async function loadETRAnalysisData() {
+    const year = document.getElementById('etr-year-filter')?.value || 2024;
+    const grid = document.getElementById('etr-companies-grid');
+    
+    if (!grid) return;
+    
+    grid.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading ETR data...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/etr/companies`);
+        const companies = await response.json();
+        etrCompaniesData = companies;
+        
+        // Load ETR calculations for each company
+        const etrResults = [];
+        for (const company of companies) {
+            if (company.available_years && company.available_years.includes(parseInt(year))) {
+                try {
+                    const etrResponse = await fetch(`${API_BASE}/governance/etr/calculate/${company.id}/${year}`);
+                    const etrData = await etrResponse.json();
+                    
+                    if (etrData.error) {
+                        etrResults.push({
+                            ...company,
+                            error: etrData.error
+                        });
+                    } else {
+                        etrResults.push({
+                            ...company,
+                            etr_data: etrData
+                        });
+                    }
+                } catch (e) {
+                    etrResults.push({
+                        ...company,
+                        error: 'Failed to load'
+                    });
+                }
+            } else {
+                etrResults.push({
+                    ...company,
+                    error: 'No data for this year'
+                });
+            }
+        }
+        
+        // Cache results
+        etrAnalysisCache[year] = etrResults;
+        
+        // Update stats
+        updateETRStats(etrResults);
+        
+        // Render cards
+        renderETRCards(etrResults);
+        
+    } catch (error) {
+        console.error('Error loading ETR data:', error);
+        grid.innerHTML = '<p class="error-message">Error loading ETR data</p>';
+    }
+}
+
+function updateETRStats(results) {
+    let lowCount = 0;
+    let mediumCount = 0;
+    let highCount = 0;
+    
+    results.forEach(result => {
+        if (result.error) return;
+        
+        const variance = parseFloat(result.etr_data?.variance_analysis?.absolute_variance || 
+                                   result.etr_data?.variance || 0);
+        const absVariance = Math.abs(variance);
+        
+        if (absVariance < 6) lowCount++;
+        else if (absVariance >= 7 && absVariance <= 9) mediumCount++;
+        else if (absVariance >= 10 && absVariance <= 12.5) highCount++;
+    });
+    
+    document.getElementById('etr-low-count').innerText = lowCount;
+    document.getElementById('etr-medium-count').innerText = mediumCount;
+    document.getElementById('etr-high-count').innerText = highCount;
+}
+
+function renderETRCards(results) {
+    const grid = document.getElementById('etr-companies-grid');
+    const searchTerm = document.getElementById('etr-search')?.value?.toLowerCase() || '';
+    const riskFilter = document.getElementById('etr-risk-filter')?.value || '';
+    
+    let filtered = results;
+    
+    // Apply search filter
+    if (searchTerm) {
+        filtered = filtered.filter(company => 
+            company.company_name.toLowerCase().includes(searchTerm) || 
+            company.id.toString().includes(searchTerm)
+        );
+    }
+    
+    // Apply risk filter
+    if (riskFilter) {
+        filtered = filtered.filter(company => {
+            if (company.error) return false;
+            const variance = Math.abs(parseFloat(company.etr_data?.variance_analysis?.absolute_variance || 
+                                                   company.etr_data?.variance || 0));
+            
+            if (riskFilter === 'low') return variance < 6;
+            if (riskFilter === 'medium') return variance >= 7 && variance <= 9;
+            if (riskFilter === 'high') return variance >= 10 && variance <= 12.5;
+            return true;
+        });
+    }
+    
+    if (filtered.length === 0) {
+        grid.innerHTML = '<div class="etr-empty"><i class="fas fa-chart-line"></i><p>No companies match your filters</p></div>';
+        return;
+    }
+    
+    grid.innerHTML = filtered.map(company => {
+        if (company.error) {
+            return `
+                <div class="etr-card" style="opacity: 0.6;">
+                    <div class="etr-card-header">
+                        <div class="etr-company-name">${escapeHtml(company.company_name)}</div>
+                        <span class="etr-risk-badge" style="background: #64748b;">N/A</span>
+                    </div>
+                    <div class="etr-industry">
+                        <i class="fas fa-chart-line"></i> ${escapeHtml(company.industry || 'N/A')}
+                    </div>
+                    <div style="text-align: center; padding: 20px; color: #94a3b8;">
+                        <i class="fas fa-exclamation-circle"></i> ${company.error}
+                    </div>
+                </div>
+            `;
+        }
+        
+        const etrData = company.etr_data;
+        
+        // Determine risk level based on variance
+        const variance = Math.abs(parseFloat(etrData?.variance_analysis?.absolute_variance || etrData?.variance || 0));
+        let riskLevel, riskClass, riskBadge, varianceIcon;
+        
+        if (variance < 6) {
+            riskLevel = 'Low Risk';
+            riskClass = 'low-risk';
+            riskBadge = 'low';
+            varianceIcon = 'fa-smile-wink';
+        } else if (variance >= 7 && variance <= 9) {
+            riskLevel = 'Medium Risk';
+            riskClass = 'medium-risk';
+            riskBadge = 'medium';
+            varianceIcon = 'fa-meh';
+        } else if (variance >= 10 && variance <= 12.5) {
+            riskLevel = 'Aggressive';
+            riskClass = 'high-risk';
+            riskBadge = 'high';
+            varianceIcon = 'fa-frown';
+        } else {
+            riskLevel = 'Unknown';
+            riskClass = '';
+            riskBadge = '';
+            varianceIcon = 'fa-question';
+        }
+        
+        // Get statutory and actual ETR
+        const statutoryETR = etrData?.etr_calculations?.statutory_etr || etrData?.statutory_rate || 25;
+        const actualETR = etrData?.etr_calculations?.actual_etr || parseFloat(etrData?.etr) || 0;
+        const varianceValue = etrData?.variance_analysis?.absolute_variance || etrData?.variance || 0;
+        
+        return `
+            <div class="etr-card ${riskClass}" onclick="showETRDetails(${company.id}, ${document.getElementById('etr-year-filter').value})">
+                <div class="etr-card-header">
+                    <div class="etr-company-name">${escapeHtml(company.company_name)}</div>
+                    <span class="etr-risk-badge ${riskBadge}">${riskLevel}</span>
+                </div>
+                
+                <div class="etr-stats">
+                    <div class="etr-stat">
+                        <div class="etr-stat-label">Statutory Rate</div>
+                        <div class="etr-stat-value">${statutoryETR}%</div>
+                    </div>
+                    <div class="etr-stat">
+                        <div class="etr-stat-label">Actual ETR</div>
+                        <div class="etr-stat-value ${riskBadge}">${actualETR.toFixed(1)}%</div>
+                    </div>
+                </div>
+                
+                <div class="etr-variance">
+                    <i class="fas ${varianceIcon} variance-icon ${riskBadge}"></i>
+                    <span><strong>Variance:</strong> ${varianceValue > 0 ? '+' : ''}${varianceValue.toFixed(1)}%</span>
+                    ${variance >= 10 ? '<span style="margin-left: 8px;">⚠️ High deviation</span>' : ''}
+                </div>
+                
+                <div class="etr-industry">
+                    <i class="fas fa-building"></i> ${escapeHtml(company.industry || 'N/A')}
+                    <span style="margin-left: auto;">
+                        <i class="fas fa-calendar"></i> ${etrData?.fiscal_year || document.getElementById('etr-year-filter').value}
+                    </span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterETRCompanies() {
+    const year = document.getElementById('etr-year-filter')?.value || 2024;
+    const cached = etrAnalysisCache[year];
+    
+    if (cached) {
+        renderETRCards(cached);
+    } else {
+        loadETRAnalysisData();
+    }
+}
+
+function filterETRByRisk(riskType) {
+    const filterSelect = document.getElementById('etr-risk-filter');
+    if (filterSelect) {
+        filterSelect.value = riskType;
+        filterETRCompanies();
+    }
+}
+
+function refreshETRAnalysis() {
+    const year = document.getElementById('etr-year-filter')?.value || 2024;
+    delete etrAnalysisCache[year];
+    loadETRAnalysisData();
+}
+
+async function showETRDetails(companyId, year) {
+    // Show detailed modal with full ETR analysis
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'block';
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>ETR Analysis Details</h2>
+                <span class="close-modal" onclick="this.closest('.modal').remove()">&times;</span>
+            </div>
+            <div id="modal-details-content" style="padding: 20px;">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading details...</div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/etr/calculate/${companyId}/${year}`);
+        const data = await response.json();
+        
+        const modalContent = document.getElementById('modal-details-content');
+        const variance = Math.abs(data.variance_analysis?.absolute_variance || data.variance || 0);
+        
+        let riskIcon = variance < 6 ? '✅' : (variance >= 10 ? '⚠️' : '📊');
+        let riskColor = variance < 6 ? '#16a34a' : (variance >= 10 ? '#dc2626' : '#e67e22');
+        
+        modalContent.innerHTML = `
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h3>${escapeHtml(data.taxpayer?.name || `Taxpayer ${companyId}`)}</h3>
+                <p>${data.taxpayer?.industry || 'N/A'} | Year: ${year}</p>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div style="background: #f8fafc; padding: 15px; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 12px; color: #64748b;">Statutory Rate</div>
+                    <div style="font-size: 28px; font-weight: 700;">${data.etr_calculations?.statutory_etr || data.statutory_rate || 25}%</div>
+                </div>
+                <div style="background: #f8fafc; padding: 15px; border-radius: 12px; text-align: center;">
+                    <div style="font-size: 12px; color: #64748b;">Actual ETR</div>
+                    <div style="font-size: 28px; font-weight: 700; color: ${riskColor}">${(data.etr_calculations?.actual_etr || parseFloat(data.etr)).toFixed(1)}%</div>
+                </div>
+            </div>
+            
+            <div style="background: ${riskColor}10; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: center;">
+                <span style="font-size: 24px;">${riskIcon}</span>
+                <div style="font-size: 18px; font-weight: 600; color: ${riskColor}">Variance: ${(data.variance_analysis?.absolute_variance || data.variance || 0).toFixed(1)}%</div>
+                <div style="font-size: 12px; margin-top: 5px;">
+                    ${variance < 6 ? 'Low risk - Compliant' : (variance >= 10 ? 'High risk - Potential tax avoidance' : 'Medium risk - Monitor closely')}
+                </div>
+            </div>
+            
+            <div style="background: #f8fafc; padding: 15px; border-radius: 12px;">
+                <div style="font-weight: 600; margin-bottom: 10px;">Recommendation</div>
+                <div>${data.risk_assessment?.recommendation || data.recommendation || 'Review tax planning strategies'}</div>
+            </div>
+            
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="this.closest('.modal').remove()" class="btn-secondary">Close</button>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('Error loading details:', error);
+        const modalContent = document.getElementById('modal-details-content');
+        if (modalContent) {
+            modalContent.innerHTML = '<p class="error-message">Error loading details</p>';
+        }
+    }
+}
+
+function exportETRReport() {
+    const year = document.getElementById('etr-year-filter')?.value || 2024;
+    const data = etrAnalysisCache[year];
+    
+    if (!data) {
+        showNotification('info', 'Loading data first...');
+        loadETRAnalysisData();
+        return;
+    }
+    
+    // Create CSV export
+    const csvRows = [['Company ID', 'Company Name', 'Industry', 'Statutory ETR', 'Actual ETR', 'Variance', 'Risk Level']];
+    
+    data.forEach(company => {
+        if (company.error) return;
+        
+        const variance = Math.abs(parseFloat(company.etr_data?.variance_analysis?.absolute_variance || 
+                                              company.etr_data?.variance || 0));
+        let riskLevel = variance < 6 ? 'Low Risk' : (variance >= 10 ? 'Aggressive' : 'Medium Risk');
+        
+        csvRows.push([
+            company.id,
+            company.company_name,
+            company.industry || 'N/A',
+            company.etr_data?.etr_calculations?.statutory_etr || 25,
+            (company.etr_data?.etr_calculations?.actual_etr || parseFloat(company.etr_data?.etr) || 0).toFixed(1),
+            variance.toFixed(1),
+            riskLevel
+        ]);
+    });
+    
+    const csvContent = csvRows.map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `etr_analysis_${year}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    showNotification('success', 'ETR report exported successfully');
+}
+
+// Initialize ETR Analysis
+if (document.getElementById('etr-analysis-tab')) {
+    document.addEventListener('DOMContentLoaded', function() {
+        loadETRAnalysisData();
+    });
+}
+
+
+// ==================== BEHAVIORAL ANALYSIS FUNCTIONS ====================
+
+let behavioralCompaniesData = [];
+let selectedCompanyForAnalysis = null;
+let selectedYearForAnalysis = null;
+
+async function checkModelStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/check-model`);
+        const data = await response.json();
+        
+        const statusText = document.getElementById('model-status-text');
+        const statusIcon = document.querySelector('#model-status .status-indicator i');
+        
+        if (data.status === 'available') {
+            statusText.innerHTML = '✅ Model loaded and ready for predictions';
+            statusIcon.className = 'fas fa-circle online';
+        } else {
+            statusText.innerHTML = '⚠️ Model not available. Please ensure model file exists.';
+            statusIcon.className = 'fas fa-circle offline';
+        }
+    } catch (error) {
+        console.error('Error checking model status:', error);
+    }
+}
+
+async function loadBehavioralStats() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/stats`);
+        
+        // Check if response is OK
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        document.getElementById('high-risk-behaviors').innerText = data.by_type?.['High Risk'] || 0;
+        document.getElementById('medium-risk-behaviors').innerText = data.by_type?.['Medium Risk'] || 0;
+        document.getElementById('low-risk-behaviors').innerText = data.by_type?.['Low Risk'] || 0;
+        document.getElementById('total-behaviors').innerText = data.total_detections || 0;
+        
+    } catch (error) {
+        console.error('Error loading behavioral stats:', error);
+        // Set default values on error
+        document.getElementById('high-risk-behaviors').innerText = '0';
+        document.getElementById('medium-risk-behaviors').innerText = '0';
+        document.getElementById('low-risk-behaviors').innerText = '0';
+        document.getElementById('total-behaviors').innerText = '0';
+    }
+}
+
+async function loadBehavioralCompanies() {
+    const container = document.getElementById('behavioral-companies-container');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading companies...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/companies`);
+        const companies = await response.json();
+        behavioralCompaniesData = companies;
+        
+        document.getElementById('companies-count').innerText = `${companies.length} companies`;
+        
+        if (!companies || companies.length === 0) {
+            container.innerHTML = '<p class="no-data">No companies found. Please generate test data first.</p>';
+            return;
+        }
+        
+        // Load existing analysis status for each company/year
+        const analysisStatus = await getAnalysisStatus();
+        
+        container.innerHTML = companies.map(company => `
+            <div class="company-accordion-item" data-id="${company.id}">
+                <div class="company-accordion-header" onclick="toggleCompanyExpand(${company.id})">
+                    <div class="company-info">
+                        <span class="company-name">${escapeHtml(company.company_name)}</span>
+                        <span class="company-industry">${escapeHtml(company.industry || 'N/A')}</span>
+                        <span class="company-id">ID: ${company.id}</span>
+                    </div>
+                    <div class="company-years">
+                        ${company.available_years && company.available_years.length ? 
+                            company.available_years.map(y => `<span class="year-tag ${analysisStatus[`${company.id}_${y}`] ? 'analyzed' : ''}">${y}</span>`).join('') : 
+                            '<span class="year-tag">No data</span>'}
+                    </div>
+                    <i class="fas fa-chevron-down expand-icon"></i>
+                </div>
+                <div class="company-accordion-content">
+                    <h4>Select Year for Analysis</h4>
+                    <div class="year-buttons-grid">
+                        ${company.available_years && company.available_years.length ? 
+                            company.available_years.map(year => `
+                                <button class="year-analysis-btn ${analysisStatus[`${company.id}_${year}`] ? 'analyzed' : ''}" 
+                                        onclick="showYearModalForCompany(${company.id}, ${year})">
+                                    ${year} ${analysisStatus[`${company.id}_${year}`] ? '✓' : ''}
+                                </button>
+                            `).join('') : 
+                            '<p>No tax return data available</p>'}
+                    </div>
+                    <div id="company-preview-${company.id}" class="company-preview" style="margin-top: 15px;"></div>
+                </div>
+            </div>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading behavioral companies:', error);
+        container.innerHTML = `<p class="error-message">Error loading companies: ${error.message}</p>`;
+    }
+}
+
+async function getAnalysisStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/detections?limit=1000`);
+        if (!response.ok) return {};
+        const detections = await response.json();
+        const status = {};
+        detections.forEach(d => {
+            status[`${d.taxpayer_id}_${d.fiscal_year}`] = true;
+        });
+        return status;
+    } catch (error) {
+        console.error('Error getting analysis status:', error);
+        return {};
+    }
+}
+
+function toggleCompanyExpand(companyId) {
+    const item = document.querySelector(`.company-accordion-item[data-id="${companyId}"]`);
+    if (item) {
+        item.classList.toggle('expanded');
+    }
+}
+
+function expandAllCompanies() {
+    document.querySelectorAll('.company-accordion-item').forEach(item => {
+        item.classList.add('expanded');
+    });
+}
+
+function collapseAllCompanies() {
+    document.querySelectorAll('.company-accordion-item').forEach(item => {
+        item.classList.remove('expanded');
+    });
+}
+
+function showYearModalForCompany(companyId, year) {
+    console.log('showYearModalForCompany called with:', companyId, year);
+    selectedCompanyForAnalysis = companyId;
+    selectedYearForAnalysis = year;
+    
+    const modal = document.getElementById('year-select-modal');
+    const yearSelect = document.getElementById('analysis-year-select');
+    
+    if (yearSelect) {
+        yearSelect.value = year;
+    }
+    
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
+
+function closeYearSelectModal() {
+    const modal = document.getElementById('year-select-modal');
+    if (modal) modal.style.display = 'none';
+    selectedCompanyForAnalysis = null;
+    selectedYearForAnalysis = null;
+}
+
+function confirmYearSelection() {
+    const year = document.getElementById('analysis-year-select').value;
+    if (selectedCompanyForAnalysis) {
+        const companyId = selectedCompanyForAnalysis;
+        const fiscalYear = parseInt(year);
+        console.log('Confirming analysis for company:', companyId, 'year:', fiscalYear);
+        closeYearSelectModal();
+        analyzeCompanyBehavior(companyId, fiscalYear);
+    } else {
+        console.error('No company selected for analysis');
+        showNotification('error', 'Please select a company first');
+    }
+}
+
+async function analyzeCompanyBehavior(companyId, fiscalYear) {
+    console.log('analyzeCompanyBehavior called with:', companyId, fiscalYear);
+    
+    if (!companyId || isNaN(companyId)) {
+        console.error('Invalid company ID:', companyId);
+        showNotification('error', 'Invalid company selected');
+        return;
+    }
+    
+    const modal = document.getElementById('behavior-details-modal');
+    const content = document.getElementById('behavior-details-content');
+    
+    if (!modal || !content) return;
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Analyzing behavior...</div>';
+    
+    try {
+        const url = `${API_BASE}/governance/behavioral/analyze/${companyId}/${fiscalYear}`;
+        console.log('Fetching URL:', url);
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Analysis response:', data);
+        
+        if (data.error) {
+            content.innerHTML = `<p class="error-message">Error: ${data.error}</p>`;
+        } else {
+            // Cap risk score if it exceeds 100
+            if (data.behavioral_analysis && data.behavioral_analysis.risk_score > 100) {
+                data.behavioral_analysis.risk_score = 100;
+            }
+            if (data.behavioral_analysis && data.behavioral_analysis.confidence > 100) {
+                data.behavioral_analysis.confidence = 100;
+            }
+            displayBehavioralAnalysisInModal(data);
+            // Refresh the company list to update the analyzed status
+            loadBehavioralCompanies();
+        }
+    } catch (error) {
+        console.error('Error analyzing behavior:', error);
+        content.innerHTML = `<p class="error-message">Error analyzing behavior: ${error.message}</p>`;
+    }
+}
+function displayBehavioralAnalysisInModal(data) {
+    const content = document.getElementById('behavior-details-content');
+    const analysis = data.behavioral_analysis;
+    const financial = data.financial_data;
+    const taxpayer = data.taxpayer;
+    
+    // Calculate safe/compliance score (inverse of risk score)
+    // Higher safe score = better compliance
+    let riskScore = analysis.risk_score;
+    if (riskScore > 100) riskScore = 100;
+    if (riskScore < 0) riskScore = 0;
+    
+    let safeScore = 100 - riskScore;
+    
+    // Determine safe level based on score
+    let safeLevel = '';
+    let safeColor = '';
+    let bgColor = '';
+    let borderColor = '';
+    let icon = '';
+    let statusMessage = '';
+    
+    if (safeScore >= 70) {
+        safeLevel = 'Good Compliance';
+        safeColor = '#16a34a';
+        bgColor = '#e6f9e6';
+        borderColor = '#16a34a';
+        icon = 'fa-check-circle';
+        statusMessage = 'Company is in good standing. No immediate concerns.';
+    } else if (safeScore >= 40) {
+        safeLevel = 'Moderate Compliance';
+        safeColor = '#e67e22';
+        bgColor = '#fff3e0';
+        borderColor = '#e67e22';
+        icon = 'fa-chart-line';
+        statusMessage = 'Some compliance gaps detected. Monitoring recommended.';
+    } else {
+        safeLevel = 'Poor Compliance';
+        safeColor = '#dc2626';
+        bgColor = '#fef2f2';
+        borderColor = '#dc2626';
+        icon = 'fa-exclamation-triangle';
+        statusMessage = 'Significant compliance issues detected. Attention required.';
+    }
+    
+    content.innerHTML = `
+        <div style="margin-bottom: 20px; padding: 15px; background: ${bgColor}; border-radius: 8px; border-left: 4px solid ${borderColor}; text-align: center;">
+            <div style="position: relative; display: inline-block;">
+                <canvas id="complianceGauge" width="200" height="100" style="width: 200px; height: 100px;"></canvas>
+                <div style="position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                    <span style="font-size: 28px; font-weight: bold; color: ${safeColor};">${safeScore.toFixed(0)}%</span>
+                </div>
+            </div>
+            <h3 style="margin: 10px 0 5px 0; color: ${safeColor};">
+                <i class="fas ${icon}"></i> ${safeLevel}
+            </h3>
+            <p style="margin: 0; color: #64748b;">${escapeHtml(taxpayer.company_name)} - ${data.fiscal_year}</p>
+            <p style="margin-top: 10px; font-size: 13px; color: ${safeColor};">${statusMessage}</p>
+        </div>
+        
+        ${analysis.top_risk_factors && analysis.top_risk_factors.length > 0 ? `
+        <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0; color: #1a2c3e;"><i class="fas fa-exclamation-triangle"></i> Areas for Improvement</h4>
+            <ul style="margin: 0;">
+                ${analysis.top_risk_factors.slice(0, 3).map(factor => `
+                    <li style="margin-bottom: 8px;">
+                        <strong>${factor.feature.replace(/_/g, ' ').toUpperCase()}:</strong> 
+                        ${factor.value.toFixed(4)}
+                    </li>
+                `).join('')}
+            </ul>
+        </div>
+        ` : ''}
+        
+        <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0;"><i class="fas fa-dollar-sign"></i> Financial Summary</h4>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                <div><strong>Revenue:</strong> $${financial.revenue.toLocaleString()}</div>
+                <div><strong>Profit:</strong> $${financial.profit.toLocaleString()}</div>
+                <div><strong>Tax Paid:</strong> $${financial.tax_paid.toLocaleString()}</div>
+                <div><strong>Compliance Ratio:</strong> ${(financial.tax_compliance_ratio * 100).toFixed(1)}%</div>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button onclick="saveCurrentBehaviorAnalysis(${taxpayer.id}, ${data.fiscal_year})" class="btn-primary">
+                <i class="fas fa-save"></i> Save Detection
+            </button>
+            <button onclick="closeBehaviorDetailsModal()" class="btn-secondary">Close</button>
+        </div>
+    `;
+    
+    // Draw the gauge chart
+    drawComplianceGauge(safeScore, safeColor);
+}
+
+function drawComplianceGauge(score, color) {
+    const canvas = document.getElementById('complianceGauge');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const centerX = 100;
+    const centerY = 80;
+    const radius = 70;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * (score / 100));
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, 200, 100);
+    
+    // Draw background arc (light gray)
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, startAngle + Math.PI * 2);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 15;
+    ctx.stroke();
+    
+    // Draw foreground arc (score)
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 15;
+    ctx.stroke();
+    
+    // Draw center circle
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 50, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+async function saveCurrentBehaviorAnalysis(taxpayerId, fiscalYear) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/save/${taxpayerId}/${fiscalYear}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes: '' })
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Behavior detection saved');
+            closeBehaviorDetailsModal();
+            loadBehavioralStats();
+            loadDetectedBehaviors();
+            loadBehavioralCompanies();
+        } else {
+            const data = await response.json();
+            showNotification('error', data.error || 'Failed to save');
+        }
+    } catch (error) {
+        console.error('Error saving behavior:', error);
+        showNotification('error', 'Error saving behavior');
+    }
+}
+
+function closeBehaviorDetailsModal() {
+    const modal = document.getElementById('behavior-details-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function filterBehavioralCompanies() {
+    const searchTerm = document.getElementById('behavioral-search')?.value?.toLowerCase() || '';
+    const riskFilter = document.getElementById('behavior-risk-filter')?.value || '';
+    
+    const items = document.querySelectorAll('.company-accordion-item');
+    
+    items.forEach(item => {
+        const name = item.querySelector('.company-name')?.innerText.toLowerCase() || '';
+        const id = item.getAttribute('data-id') || '';
+        
+        let matches = true;
+        if (searchTerm) {
+            matches = name.includes(searchTerm) || id.includes(searchTerm);
+        }
+        
+        item.style.display = matches ? 'block' : 'none';
+    });
+}
+
+function filterBehaviors(riskType) {
+    const filterSelect = document.getElementById('behavior-type-filter');
+    if (filterSelect) {
+        filterSelect.value = riskType;
+        loadDetectedBehaviors();
+    }
+}
+
+async function loadDetectedBehaviors() {
+    const typeFilter = document.getElementById('behavior-type-filter')?.value || '';
+    const reviewedFilter = document.getElementById('reviewed-filter')?.value || '';
+    
+    let url = `${API_BASE}/governance/behavioral/detections`;
+    const params = new URLSearchParams();
+    if (typeFilter) params.append('behavior_type', typeFilter);
+    if (reviewedFilter) params.append('reviewed', reviewedFilter);
+    if (params.toString()) url += `?${params.toString()}`;
+    
+    try {
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        const container = document.getElementById('detected-behaviors-container');
+        if (!container) return;
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<p class="no-data">No detected behaviors found. Run batch analysis or analyze individual companies.</p>';
+            return;
+        }
+        
+        container.innerHTML = data.map(behavior => {
+            const riskClass = behavior.behavior_type === 'High Risk' ? 'high' : 
+                            behavior.behavior_type === 'Medium Risk' ? 'medium' : 'low';
+            return `
+                <div class="behavior-card ${riskClass}" onclick="showBehaviorDetails(${behavior.id})">
+                    <div class="behavior-header">
+                        <div class="behavior-title">
+                            ${escapeHtml(behavior.taxpayer_name || `Taxpayer ${behavior.taxpayer_id}`)}
+                            <span style="font-size: 12px; color: #64748b;"> (${behavior.fiscal_year})</span>
+                        </div>
+                        <span class="behavior-risk ${riskClass}">${behavior.behavior_type}</span>
+                    </div>
+                    <div class="behavior-metrics">
+                        <div class="metric">
+                            <div class="metric-label">Risk Score</div>
+                            <div class="metric-value">${behavior.risk_score.toFixed(1)}%</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Confidence</div>
+                            <div class="metric-value">${behavior.confidence.toFixed(1)}%</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Status</div>
+                            <div class="metric-value">${behavior.reviewed ? '✓ Reviewed' : '⏳ Pending'}</div>
+                        </div>
+                    </div>
+                    ${behavior.risk_factors && behavior.risk_factors.length > 0 ? `
+                    <div class="risk-factors">
+                        <strong>Key Factors:</strong> ${behavior.risk_factors.slice(0, 2).map(f => f.feature.replace(/_/g, ' ')).join(', ')}
+                    </div>
+                    ` : ''}
+                    <div class="behavior-actions" onclick="event.stopPropagation()">
+                        ${!behavior.reviewed ? `
+                        <button onclick="markBehaviorReviewed(${behavior.id})" class="btn-secondary" style="padding: 5px 10px;">
+                            <i class="fas fa-check"></i> Mark Reviewed
+                        </button>
+                        ` : ''}
+                        <button onclick="showBehaviorDetails(${behavior.id})" class="btn-outline" style="padding: 5px 10px;">
+                            <i class="fas fa-eye"></i> Details
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join();
+        
+    } catch (error) {
+        console.error('Error loading detected behaviors:', error);
+        const container = document.getElementById('detected-behaviors-container');
+        if (container) {
+            container.innerHTML = '<p class="error-message">Error loading detected behaviors. Please ensure the database is set up correctly.</p>';
+        }
+    }
+}
+
+async function showBehaviorDetails(behaviorId) {
+    const modal = document.getElementById('behavior-details-modal');
+    const content = document.getElementById('behavior-details-content');
+    
+    if (!modal || !content) return;
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading behavior details...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/detections/${behaviorId}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const behavior = await response.json();
+        displaySavedBehaviorDetails(behavior);
+    } catch (error) {
+        console.error('Error loading behavior details:', error);
+        content.innerHTML = '<p class="error-message">Error loading behavior details</p>';
+    }
+}
+
+function displaySavedBehaviorDetails(behavior) {
+    const content = document.getElementById('behavior-details-content');
+    
+    // Calculate safe/compliance score
+    let riskScore = behavior.risk_score;
+    if (riskScore > 100) riskScore = 100;
+    if (riskScore < 0) riskScore = 0;
+    
+    let safeScore = 100 - riskScore;
+    
+    let safeLevel = '';
+    let safeColor = '';
+    let bgColor = '';
+    let borderColor = '';
+    let icon = '';
+    let statusMessage = '';
+    
+    if (safeScore >= 70) {
+        safeLevel = 'Good Compliance';
+        safeColor = '#16a34a';
+        bgColor = '#e6f9e6';
+        borderColor = '#16a34a';
+        icon = 'fa-check-circle';
+        statusMessage = 'Company is in good standing. No immediate concerns.';
+    } else if (safeScore >= 40) {
+        safeLevel = 'Moderate Compliance';
+        safeColor = '#e67e22';
+        bgColor = '#fff3e0';
+        borderColor = '#e67e22';
+        icon = 'fa-chart-line';
+        statusMessage = 'Some compliance gaps detected. Monitoring recommended.';
+    } else {
+        safeLevel = 'Poor Compliance';
+        safeColor = '#dc2626';
+        bgColor = '#fef2f2';
+        borderColor = '#dc2626';
+        icon = 'fa-exclamation-triangle';
+        statusMessage = 'Significant compliance issues detected. Attention required.';
+    }
+    
+    content.innerHTML = `
+        <div style="margin-bottom: 20px; padding: 15px; background: ${bgColor}; border-radius: 8px; border-left: 4px solid ${borderColor}; text-align: center;">
+            <div style="position: relative; display: inline-block;">
+                <canvas id="savedComplianceGauge" width="200" height="100" style="width: 200px; height: 100px;"></canvas>
+                <div style="position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                    <span style="font-size: 28px; font-weight: bold; color: ${safeColor};">${safeScore.toFixed(0)}%</span>
+                </div>
+            </div>
+            <h3 style="margin: 10px 0 5px 0; color: ${safeColor};">
+                <i class="fas ${icon}"></i> ${safeLevel}
+            </h3>
+            <p style="margin: 0; color: #64748b;">${escapeHtml(behavior.taxpayer_name || `Taxpayer ${behavior.taxpayer_id}`)} - ${behavior.fiscal_year}</p>
+            <p style="margin-top: 10px; font-size: 13px; color: ${safeColor};">${statusMessage}</p>
+        </div>
+        
+        ${behavior.risk_factors && behavior.risk_factors.length > 0 ? `
+        <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0;"><i class="fas fa-exclamation-triangle"></i> Areas for Improvement</h4>
+            <ul style="margin: 0;">
+                ${behavior.risk_factors.slice(0, 3).map(factor => `
+                    <li style="margin-bottom: 8px;">
+                        <strong>${factor.feature.replace(/_/g, ' ').toUpperCase()}:</strong> 
+                        ${factor.value.toFixed(4)}
+                    </li>
+                `).join('')}
+            </ul>
+        </div>
+        ` : ''}
+        
+        <div style="background: #f8fafc; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="margin: 0 0 10px 0;"><i class="fas fa-calendar"></i> Detection Info</h4>
+            <div>Detected at: ${formatDate(behavior.detected_at)}</div>
+            ${behavior.notes ? `<div>Notes: ${escapeHtml(behavior.notes)}</div>` : ''}
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            ${!behavior.reviewed ? `
+            <button onclick="markBehaviorReviewedFromModal(${behavior.id})" class="btn-primary">
+                <i class="fas fa-check"></i> Mark as Reviewed
+            </button>
+            ` : ''}
+            <button onclick="closeBehaviorDetailsModal()" class="btn-secondary">Close</button>
+        </div>
+    `;
+    
+    // Draw the gauge chart for saved behavior
+    drawSavedComplianceGauge(safeScore, safeColor);
+}
+
+function drawSavedComplianceGauge(score, color) {
+    const canvas = document.getElementById('savedComplianceGauge');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const centerX = 100;
+    const centerY = 80;
+    const radius = 70;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (Math.PI * 2 * (score / 100));
+    
+    ctx.clearRect(0, 0, 200, 100);
+    
+    // Background arc
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, startAngle + Math.PI * 2);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 15;
+    ctx.stroke();
+    
+    // Foreground arc
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 15;
+    ctx.stroke();
+    
+    // Center circle
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 50, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+async function markBehaviorReviewed(behaviorId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/save/${behaviorId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewed: true })
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Behavior marked as reviewed');
+            loadDetectedBehaviors();
+            loadBehavioralStats();
+        } else {
+            showNotification('error', 'Failed to update');
+        }
+    } catch (error) {
+        console.error('Error marking behavior:', error);
+        showNotification('error', 'Error updating');
+    }
+}
+
+async function markBehaviorReviewedFromModal(behaviorId) {
+    await markBehaviorReviewed(behaviorId);
+    closeBehaviorDetailsModal();
+}
+
+async function clearDetections() {
+    if (!confirm('⚠️ This will permanently delete ALL detected behaviors. This action cannot be undone. Are you sure?')) {
+        return;
+    }
+    
+    const btn = document.getElementById('clear-data-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Clearing...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/clear-detections`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'All detected behaviors cleared successfully');
+            loadBehavioralStats();
+            loadDetectedBehaviors();
+            loadBehavioralCompanies();
+        } else {
+            const data = await response.json();
+            showNotification('error', data.error || 'Failed to clear data');
+        }
+    } catch (error) {
+        console.error('Error clearing detections:', error);
+        showNotification('error', 'Error clearing data');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function refreshBehavioralStats() {
+    checkModelStatus();
+    loadBehavioralStats();
+    loadDetectedBehaviors();
+    loadBehavioralCompanies();
+}
+
+function showBatchYearModal() {
+    const modal = document.getElementById('batch-year-modal');
+    if (modal) modal.style.display = 'block';
+}
+
+function closeBatchYearModal() {
+    const modal = document.getElementById('batch-year-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function runBatchAnalysis() {
+    const year = document.getElementById('batch-year-select').value;
+    closeBatchYearModal();
+    
+    const btn = document.querySelector('#batch-analyze-btn');
+    const originalText = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+    btn.disabled = true;
+    
+    // Show progress
+    let progressDiv = document.getElementById('batch-progress');
+    if (!progressDiv) {
+        progressDiv = document.createElement('div');
+        progressDiv.id = 'batch-progress';
+        progressDiv.className = 'progress-bar-container';
+        document.querySelector('.action-bar').after(progressDiv);
+    }
+    progressDiv.innerHTML = `
+        <div class="progress-bar" style="width: 0%"></div>
+        <p style="text-align: center; margin-top: 8px; font-size: 12px;">Analyzing companies for ${year}...</p>
+    `;
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/batch-analyze/${year}`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification('success', `Batch analysis complete for ${year}! ${data.total_analyzed} companies analyzed.`);
+            loadBehavioralStats();
+            loadDetectedBehaviors();
+            loadBehavioralCompanies();
+            
+            const progressBar = document.querySelector('#batch-progress .progress-bar');
+            if (progressBar) progressBar.style.width = '100%';
+            setTimeout(() => {
+                if (progressDiv) progressDiv.remove();
+            }, 2000);
+        } else {
+            showNotification('error', data.error || 'Batch analysis failed');
+        }
+    } catch (error) {
+        console.error('Error in batch analysis:', error);
+        showNotification('error', 'Error performing batch analysis');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        setTimeout(() => {
+            if (progressDiv) progressDiv.remove();
+        }, 2000);
+    }
+}
+
+// Initialize Behavioral Analysis
+if (document.getElementById('behavioral-analysis-tab')) {
+    document.addEventListener('DOMContentLoaded', function() {
+        checkModelStatus();
+        loadBehavioralStats();
+        loadDetectedBehaviors();
+        loadBehavioralCompanies();
+    });
+}
+// ==================== BEHAVIORAL ANALYSIS MODAL FUNCTIONS ====================
+
+let currentAnalysisData = null;
+let currentAnalysisYear = null;
+
+function showYearModal() {
+    const modal = document.getElementById('year-selection-modal');
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
+
+function closeYearModal() {
+    const modal = document.getElementById('year-selection-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function runBatchAnalysisWithYear() {
+    const year = document.getElementById('behavioral-year-select').value;
+    closeYearModal();
+    
+    const btn = document.getElementById('batch-analyze-btn');
+    const originalText = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+    btn.disabled = true;
+    
+    // Show progress
+    let progressDiv = document.getElementById('batch-progress');
+    if (!progressDiv) {
+        progressDiv = document.createElement('div');
+        progressDiv.id = 'batch-progress';
+        progressDiv.className = 'progress-bar-container';
+        document.querySelector('.action-bar').after(progressDiv);
+    }
+    progressDiv.innerHTML = `
+        <div class="progress-bar" style="width: 0%"></div>
+        <p style="text-align: center; margin-top: 8px; font-size: 12px;">Analyzing companies for ${year}...</p>
+    `;
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/batch-analyze/${year}`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showNotification('success', `Batch analysis complete for ${year}! ${data.total_analyzed} companies analyzed.`);
+            loadBehavioralStats();
+            loadDetectedBehaviors();
+            loadBehavioralCompanies();
+            
+            const progressBar = document.querySelector('#batch-progress .progress-bar');
+            if (progressBar) progressBar.style.width = '100%';
+            setTimeout(() => {
+                if (progressDiv) progressDiv.remove();
+            }, 2000);
+        } else {
+            showNotification('error', data.error || 'Batch analysis failed');
+        }
+    } catch (error) {
+        console.error('Error in batch analysis:', error);
+        showNotification('error', 'Error performing batch analysis');
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        setTimeout(() => {
+            if (progressDiv) progressDiv.remove();
+        }, 2000);
+    }
+}
+
+async function showBehaviorDetails(behaviorId) {
+    const modal = document.getElementById('behavior-details-modal');
+    const content = document.getElementById('behavior-details-content');
+    
+    if (!modal || !content) return;
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading behavior details...</div>';
+    
+    try {
+        // Use the correct endpoint with detection_id
+        const response = await fetch(`${API_BASE}/governance/behavioral/detections/${behaviorId}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const behavior = await response.json();
+        displaySavedBehaviorDetails(behavior);
+    } catch (error) {
+        console.error('Error loading behavior details:', error);
+        content.innerHTML = `<p class="error-message">Error loading behavior details: ${error.message}</p>`;
+    }
+}
+
+async function markBehaviorReviewed(behaviorId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/save/${behaviorId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewed: true })
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Behavior marked as reviewed');
+            loadDetectedBehaviors();
+            loadBehavioralStats();
+        } else {
+            const data = await response.json();
+            showNotification('error', data.error || 'Failed to update');
+        }
+    } catch (error) {
+        console.error('Error marking behavior:', error);
+        showNotification('error', 'Error updating');
+    }
+}
+
+async function saveCurrentBehaviorAnalysis(taxpayerId, fiscalYear) {
+    // First analyze, then the detection is automatically saved
+    // No need for a separate save endpoint
+    showNotification('success', 'Behavior analysis completed and saved automatically');
+    closeBehaviorDetailsModal();
+    loadBehavioralStats();
+    loadDetectedBehaviors();
+    loadBehavioralCompanies();
+}
+
+function displayBehaviorDetails(behavior) {
+    const content = document.getElementById('behavior-details-content');
+    const riskClass = behavior.behavior_type === 'High Risk' ? 'high' : 
+                     behavior.behavior_type === 'Medium Risk' ? 'medium' : 'low';
+    
+    content.innerHTML = `
+        <div class="behavior-card ${riskClass}" style="margin-bottom: 0;">
+            <div class="behavior-header">
+                <div class="behavior-title">
+                    ${escapeHtml(behavior.taxpayer_name || `Taxpayer ${behavior.taxpayer_id}`)}
+                    <span style="font-size: 14px; color: #64748b;"> (${behavior.fiscal_year})</span>
+                </div>
+                <span class="behavior-risk ${riskClass}">${behavior.behavior_type}</span>
+            </div>
+            
+            <div class="behavior-metrics">
+                <div class="metric">
+                    <div class="metric-label">Risk Score</div>
+                    <div class="metric-value">${behavior.risk_score.toFixed(1)}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Confidence</div>
+                    <div class="metric-value">${behavior.confidence.toFixed(1)}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Status</div>
+                    <div class="metric-value">${behavior.reviewed ? '✓ Reviewed' : '⏳ Pending'}</div>
+                </div>
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <strong>Risk Probabilities:</strong>
+                <div style="display: flex; gap: 12px; margin-top: 8px;">
+                    ${Object.entries(behavior.predictions || {}).map(([level, prob]) => `
+                        <span style="flex: 1; text-align: center; padding: 6px; background: ${level === 'High Risk' ? '#fee2e2' : level === 'Medium Risk' ? '#fff3e0' : '#e6f9e6'}; border-radius: 6px;">
+                            ${level}: ${prob}%
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+            
+            ${behavior.risk_factors && behavior.risk_factors.length > 0 ? `
+            <div style="margin: 15px 0; padding: 12px; background: #f8fafc; border-radius: 8px;">
+                <strong><i class="fas fa-exclamation-triangle"></i> Key Risk Factors:</strong>
+                <ul style="margin-top: 8px; margin-bottom: 0;">
+                    ${behavior.risk_factors.map(factor => `
+                        <li><strong>${factor.feature.replace(/_/g, ' ').toUpperCase()}:</strong> ${factor.value.toFixed(4)} (Importance: ${(factor.importance * 100).toFixed(1)}%)</li>
+                    `).join('')}
+                </ul>
+            </div>
+            ` : ''}
+            
+            <div style="margin: 15px 0; padding: 12px; background: #f8fafc; border-radius: 8px;">
+                <strong><i class="fas fa-calendar"></i> Detection Info:</strong>
+                <div style="margin-top: 8px;">
+                    <div>Detected at: ${formatDate(behavior.detected_at)}</div>
+                    ${behavior.notes ? `<div>Notes: ${escapeHtml(behavior.notes)}</div>` : ''}
+                </div>
+            </div>
+            
+            <div class="behavior-actions" style="margin-top: 20px;">
+                ${!behavior.reviewed ? `
+                <button onclick="markBehaviorReviewedFromModal(${behavior.id})" class="btn-primary">
+                    <i class="fas fa-check"></i> Mark as Reviewed
+                </button>
+                ` : ''}
+                <button onclick="closeBehaviorDetailsModal()" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    `;
+}
+
+async function markBehaviorReviewedFromModal(behaviorId) {
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/save/${behaviorId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewed: true })
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Behavior marked as reviewed');
+            closeBehaviorDetailsModal();
+            loadDetectedBehaviors();
+            loadBehavioralStats();
+        } else {
+            showNotification('error', 'Failed to update');
+        }
+    } catch (error) {
+        console.error('Error marking behavior:', error);
+        showNotification('error', 'Error updating');
+    }
+}
+
+function closeBehaviorDetailsModal() {
+    const modal = document.getElementById('behavior-details-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Also add function to show analysis details from the company card
+async function showCompanyBehaviorDetails(companyId, year) {
+    const modal = document.getElementById('behavior-details-modal');
+    const content = document.getElementById('behavior-details-content');
+    
+    if (!modal || !content) return;
+    
+    modal.style.display = 'block';
+    content.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> Loading analysis...</div>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/analyze/${companyId}/${year}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+            displayBehavioralAnalysisInModal(data);
+        } else {
+            content.innerHTML = `<p class="error-message">Error: ${data.error}</p>`;
+        }
+    } catch (error) {
+        console.error('Error loading analysis:', error);
+        content.innerHTML = '<p class="error-message">Error loading analysis</p>';
+    }
+}
+
+function displayBehavioralAnalysisInModal(data) {
+    const content = document.getElementById('behavior-details-content');
+    const analysis = data.behavioral_analysis;
+    const financial = data.financial_data;
+    const taxpayer = data.taxpayer;
+    
+    const riskColor = analysis.risk_level === 'High Risk' ? 'high' : 
+                     analysis.risk_level === 'Medium Risk' ? 'medium' : 'low';
+    
+    content.innerHTML = `
+        <div class="behavior-card ${riskColor}" style="margin-bottom: 0;">
+            <div class="behavior-header">
+                <div class="behavior-title">
+                    ${escapeHtml(taxpayer.company_name)} - ${data.fiscal_year}
+                </div>
+                <span class="behavior-risk ${riskColor}">${analysis.risk_level}</span>
+            </div>
+            <div class="behavior-taxpayer">
+                <i class="fas fa-chart-line"></i> ${escapeHtml(taxpayer.industry)}
+                <i class="fas fa-building"></i> TIN: ${escapeHtml(taxpayer.tin)}
+            </div>
+            
+            <div class="behavior-metrics">
+                <div class="metric">
+                    <div class="metric-label">Risk Score</div>
+                    <div class="metric-value">${analysis.risk_score.toFixed(1)}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Confidence</div>
+                    <div class="metric-value">${analysis.confidence.toFixed(1)}%</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Compliance Ratio</div>
+                    <div class="metric-value">${(financial.tax_compliance_ratio * 100).toFixed(1)}%</div>
+                </div>
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <strong>Risk Probabilities:</strong>
+                <div style="display: flex; gap: 12px; margin-top: 8px;">
+                    ${Object.entries(analysis.risk_probabilities).map(([level, prob]) => `
+                        <span style="flex: 1; text-align: center; padding: 6px; background: ${level === 'High Risk' ? '#fee2e2' : level === 'Medium Risk' ? '#fff3e0' : '#e6f9e6'}; border-radius: 6px;">
+                            ${level}: ${prob}%
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+            
+            ${analysis.top_risk_factors && analysis.top_risk_factors.length > 0 ? `
+            <div style="margin: 15px 0; padding: 12px; background: #f8fafc; border-radius: 8px;">
+                <strong><i class="fas fa-exclamation-triangle"></i> Top Risk Factors:</strong>
+                <ul style="margin-top: 8px; margin-bottom: 0;">
+                    ${analysis.top_risk_factors.map(factor => `
+                        <li><strong>${factor.feature.replace(/_/g, ' ').toUpperCase()}:</strong> ${factor.value.toFixed(4)} (Importance: ${(factor.importance * 100).toFixed(1)}%)</li>
+                    `).join('')}
+                </ul>
+            </div>
+            ` : ''}
+            
+            <div style="margin: 15px 0; padding: 12px; background: #f8fafc; border-radius: 8px;">
+                <strong><i class="fas fa-dollar-sign"></i> Financial Summary:</strong>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px;">
+                    <div>Revenue: $${financial.revenue.toLocaleString()}</div>
+                    <div>Profit: $${financial.profit.toLocaleString()}</div>
+                    <div>Tax Liability: $${financial.tax_liability.toLocaleString()}</div>
+                    <div>Tax Paid: $${financial.tax_paid.toLocaleString()}</div>
+                    ${financial.late_filings !== undefined ? `<div>Late Filings: ${financial.late_filings}</div>` : ''}
+                    ${financial.compliance_violations !== undefined ? `<div>Violations: ${financial.compliance_violations}</div>` : ''}
+                </div>
+            </div>
+            
+            <div class="behavior-actions" style="margin-top: 20px;">
+                <button onclick="saveCurrentBehaviorAnalysis(${taxpayer.id}, ${data.fiscal_year})" class="btn-primary">
+                    <i class="fas fa-save"></i> Save Detection
+                </button>
+                <button onclick="closeBehaviorDetailsModal()" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    `;
+    
+    window.currentAnalysisData = data;
+}
+
+async function saveCurrentBehaviorAnalysis(taxpayerId, fiscalYear) {
+    const notes = prompt('Add notes about this behavior (optional):', '');
+    
+    showNotification('info', 'Saving behavior detection...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/governance/behavioral/save/${taxpayerId}/${fiscalYear}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes: notes || '' })
+        });
+        
+        if (response.ok) {
+            showNotification('success', 'Behavior detection saved successfully');
+            closeBehaviorDetailsModal();
+            loadBehavioralStats();
+            loadDetectedBehaviors();
+            loadBehavioralCompanies();
+        } else {
+            const data = await response.json();
+            showNotification('error', data.error || 'Failed to save');
+        }
+    } catch (error) {
+        console.error('Error saving behavior:', error);
+        showNotification('error', 'Error saving behavior');
+    }
+}
+
+// ==================== ADDITIONAL CSS FOR NOTIFICATIONS ====================
+
+const notificationStyles = `
+    .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-width: 400px;
+    }
+    
+    .notification.success { background: #16a34a; color: white; }
+    .notification.error { background: #dc2626; color: white; }
+    .notification.info { background: #2563eb; color: white; }
+    
+    .notification button {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 18px;
+        cursor: pointer;
+        margin-left: auto;
+    }
+    
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .loading-spinner {
+        text-align: center;
+        padding: 20px;
+        color: #64748b;
+    }
+    
+    .loading-spinner i {
+        font-size: 24px;
+        margin-right: 8px;
+    }
+    
+    .error-message {
+        text-align: center;
+        padding: 20px;
+        color: #dc2626;
+    }
+    
+    .risk-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    
+    .risk-badge.high { background: #fee2e2; color: #dc2626; }
+    .risk-badge.medium { background: #fff3e0; color: #e67e22; }
+    .risk-badge.low { background: #e6f9e6; color: #16a34a; }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        background: #e2e8f0;
+        color: #475569;
+    }
+    
+    .status-badge.open { background: #fee2e2; color: #dc2626; }
+    .status-badge.resolved { background: #e6f9e6; color: #16a34a; }
+    .status-badge.dismissed { background: #e2e8f0; color: #64748b; }
+    .status-badge.new { background: #fff3e0; color: #e67e22; }
+    
+    body.dark-mode .risk-badge.high { background: #7f1a1a; color: #f87171; }
+    body.dark-mode .risk-badge.medium { background: #78350f; color: #fbbf24; }
+    body.dark-mode .risk-badge.low { background: #14532d; color: #4ade80; }
+    body.dark-mode .status-badge { background: #2a2a3e; color: #94a3b8; }
+    
+    .confidence-bar {
+        width: 100%;
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    
+    .confidence-fill {
+        height: 100%;
+        background: #1a472a;
+        border-radius: 3px;
+        transition: width 0.3s;
+    }
+    
+    .company-card {
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .company-card.selected {
+        border: 2px solid #1a472a;
+        background: #e6f9e6;
+    }
+    
+    .year-badge {
+        cursor: pointer;
+        padding: 8px 16px;
+        background: #f1f5f9;
+        border-radius: 8px;
+        transition: all 0.3s;
+    }
+    
+    .year-badge:hover, .year-badge.active {
+        background: #1a472a;
+        color: white;
+    }
+    
+    .metric-card {
+        background: #f8fafc;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .metric-label {
+        font-size: 12px;
+        color: #64748b;
+        margin-bottom: 8px;
+    }
+    
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+    }
+    
+    .metric-value.risk-high {
+        color: #dc2626;
+    }
+    
+    .metric-value.risk-low {
+        color: #16a34a;
+    }
+`;
+
+const styleSheet = document.createElement('style');
+styleSheet.textContent = notificationStyles;
+document.head.appendChild(styleSheet);

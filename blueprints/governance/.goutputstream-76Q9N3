@@ -1,0 +1,901 @@
+"""
+Database models for governance module with calculation methods
+"""
+
+from datetime import datetime
+import sys
+import os
+from decimal import Decimal
+import math
+
+import joblib
+import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from __init__ import db
+
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
+# ==================== GOVERNANCE MODELS (Original) ====================
+
+class GovernanceRaw(db.Model):
+    """Raw governance data from TaRMS and external sources"""
+    __tablename__ = 'governance_raw'
+    
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    taxpayer_id = db.Column(db.Integer, nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    
+    # Board attributes
+    board_size = db.Column(db.Integer)
+    independent_directors = db.Column(db.Integer)
+    financial_experts = db.Column(db.Integer)
+    female_directors = db.Column(db.Integer)
+    ceo_duality = db.Column(db.Boolean)
+    
+    # Metadata
+    source = db.Column(db.String(50))
+    collected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        db.UniqueConstraint('taxpayer_id', 'fiscal_year', name='unique_taxpayer_year'),
+    )
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'fiscal_year': self.fiscal_year,
+            'board_size': self.board_size,
+            'independent_directors': self.independent_directors,
+            'financial_experts': self.financial_experts,
+            'female_directors': self.female_directors,
+            'ceo_duality': self.ceo_duality,
+            'source': self.source,
+            'collected_at': self.collected_at.isoformat() if self.collected_at else None
+        }
+
+
+class GovernanceIndicators(db.Model):
+    """Standardized governance indicators for analysis"""
+    __tablename__ = 'governance_indicators'
+    
+    taxpayer_id = db.Column(db.Integer, primary_key=True, nullable=False)
+    fiscal_year = db.Column(db.Integer, primary_key=True, nullable=False)
+    
+    board_size = db.Column(db.Integer)
+    independence_ratio = db.Column(db.Numeric(5, 2))
+    expertise_score = db.Column(db.Numeric(5, 2))
+    diversity_index = db.Column(db.Numeric(5, 2))
+    ceo_duality = db.Column(db.Boolean)
+    
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'taxpayer_id': self.taxpayer_id,
+            'fiscal_year': self.fiscal_year,
+            'board_size': self.board_size,
+            'independence_ratio': float(self.independence_ratio) if self.independence_ratio else None,
+            'expertise_score': float(self.expertise_score) if self.expertise_score else None,
+            'diversity_index': float(self.diversity_index) if self.diversity_index else None,
+            'ceo_duality': self.ceo_duality,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class GovernanceRiskScores(db.Model):
+    """Governance risk scores from ML model"""
+    __tablename__ = 'governance_risk_scores'
+    
+    taxpayer_id = db.Column(db.Integer, primary_key=True, nullable=False)
+    fiscal_year = db.Column(db.Integer, primary_key=True, nullable=False)
+    
+    governance_risk_score = db.Column(db.Numeric(5, 2))
+    risk_probability = db.Column(db.Numeric(5, 4))
+    risk_factors = db.Column(db.JSON)
+    model_version = db.Column(db.String(20))
+    
+    computed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'taxpayer_id': self.taxpayer_id,
+            'fiscal_year': self.fiscal_year,
+            'governance_risk_score': float(self.governance_risk_score) if self.governance_risk_score else None,
+            'risk_probability': float(self.risk_probability) if self.risk_probability else None,
+            'risk_factors': self.risk_factors,
+            'model_version': self.model_version,
+            'computed_at': self.computed_at.isoformat() if self.computed_at else None
+        }
+    
+    @staticmethod
+    def calculate_risk_score(governance_indicators):
+        """Calculate risk score using formula"""
+        
+        if not governance_indicators:
+            return 50, {}, 0.5
+        
+        risk_score = 0
+        risk_factors = {}
+        
+        # Formula 1: Board independence impact
+        independence = float(governance_indicators.independence_ratio or 0)
+        if independence < 30:
+            risk_impact = 40
+            risk_factors['independence'] = {'score': independence, 'impact': risk_impact, 'reason': 'Very low independence'}
+        elif independence < 50:
+            risk_impact = 25
+            risk_factors['independence'] = {'score': independence, 'impact': risk_impact, 'reason': 'Below optimal independence'}
+        elif independence < 70:
+            risk_impact = 10
+            risk_factors['independence'] = {'score': independence, 'impact': risk_impact, 'reason': 'Moderate independence'}
+        else:
+            risk_impact = 0
+            risk_factors['independence'] = {'score': independence, 'impact': risk_impact, 'reason': 'Strong independence'}
+        
+        risk_score += risk_impact
+        
+        # Formula 2: Financial expertise impact
+        expertise = float(governance_indicators.expertise_score or 0)
+        if expertise < 20:
+            risk_impact = 30
+            risk_factors['expertise'] = {'score': expertise, 'impact': risk_impact, 'reason': 'Insufficient financial expertise'}
+        elif expertise < 40:
+            risk_impact = 15
+            risk_factors['expertise'] = {'score': expertise, 'impact': risk_impact, 'reason': 'Limited financial expertise'}
+        elif expertise < 60:
+            risk_impact = 5
+            risk_factors['expertise'] = {'score': expertise, 'impact': risk_impact, 'reason': 'Adequate financial expertise'}
+        else:
+            risk_impact = 0
+            risk_factors['expertise'] = {'score': expertise, 'impact': risk_impact, 'reason': 'Strong financial expertise'}
+        
+        risk_score += risk_impact
+        
+        # Formula 3: Diversity impact
+        diversity = float(governance_indicators.diversity_index or 0)
+        if diversity < 10:
+            risk_impact = 20
+            risk_factors['diversity'] = {'score': diversity, 'impact': risk_impact, 'reason': 'Very low diversity'}
+        elif diversity < 25:
+            risk_impact = 10
+            risk_factors['diversity'] = {'score': diversity, 'impact': risk_impact, 'reason': 'Below average diversity'}
+        else:
+            risk_impact = 0
+            risk_factors['diversity'] = {'score': diversity, 'impact': risk_impact, 'reason': 'Good diversity'}
+        
+        risk_score += risk_impact
+        
+        # Formula 4: CEO duality impact
+        if governance_indicators.ceo_duality:
+            risk_impact = 15
+            risk_factors['ceo_duality'] = {'impact': risk_impact, 'reason': 'CEO also serves as board chair'}
+            risk_score += risk_impact
+        else:
+            risk_factors['ceo_duality'] = {'impact': 0, 'reason': 'Separate CEO and board chair roles'}
+        
+        # Formula 5: Board size impact
+        board_size = governance_indicators.board_size or 0
+        if board_size < 5:
+            risk_impact = 10
+            risk_factors['board_size'] = {'score': board_size, 'impact': risk_impact, 'reason': 'Board too small for effective oversight'}
+        elif board_size > 12:
+            risk_impact = 5
+            risk_factors['board_size'] = {'score': board_size, 'impact': risk_impact, 'reason': 'Board may be too large for efficient decision-making'}
+        else:
+            risk_impact = 0
+            risk_factors['board_size'] = {'score': board_size, 'impact': risk_impact, 'reason': 'Optimal board size'}
+        
+        risk_score += risk_impact
+        
+        # Ensure score is within 0-100 range
+        risk_score = min(max(risk_score, 0), 100)
+        risk_probability = risk_score / 100
+        
+        return risk_score, risk_factors, risk_probability
+    
+    
+
+class User(UserMixin, db.Model):
+    """User model for authentication"""
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(50), default='viewer')  # admin, auditor, compliance, viewer
+    full_name = db.Column(db.String(100))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+    
+    def has_role(self, role):
+        """Check if user has a specific role"""
+        roles_hierarchy = {
+            'admin': ['admin', 'auditor', 'compliance', 'viewer'],
+            'auditor': ['auditor', 'compliance', 'viewer'],
+            'compliance': ['compliance', 'viewer'],
+            'viewer': ['viewer']
+        }
+        return role in roles_hierarchy.get(self.role, [])
+    
+    def has_permission(self, permission):
+        """Check if user has a specific permission"""
+        permissions = {
+            'admin': ['view_all', 'edit_all', 'delete_all', 'manage_users', 'train_models'],
+            'auditor': ['view_all', 'edit_audit_cases', 'view_reports', 'export_data'],
+            'compliance': ['view_all', 'edit_compliance', 'view_reports', 'generate_reports'],
+            'viewer': ['view_dashboard', 'view_reports']
+        }
+        return permission in permissions.get(self.role, [])
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'role': self.role,
+            'full_name': self.full_name,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class UserSession(db.Model):
+    """Track user sessions and activity"""
+    __tablename__ = 'user_sessions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    session_token = db.Column(db.String(200), unique=True)
+    ip_address = db.Column(db.String(50))
+    user_agent = db.Column(db.String(300))
+    login_time = db.Column(db.DateTime, default=datetime.utcnow)
+    last_activity = db.Column(db.DateTime, default=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'ip_address': self.ip_address,
+            'login_time': self.login_time.isoformat() if self.login_time else None,
+            'last_activity': self.last_activity.isoformat() if self.last_activity else None
+        }
+
+
+class AuditLog(db.Model):
+    """Audit log for user actions"""
+    __tablename__ = 'audit_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    action = db.Column(db.String(100))
+    resource = db.Column(db.String(100))
+    resource_id = db.Column(db.String(100))
+    details = db.Column(db.Text)
+    ip_address = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        user = User.query.get(self.user_id)
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': user.username if user else 'Unknown',
+            'action': self.action,
+            'resource': self.resource,
+            'resource_id': self.resource_id,
+            'details': self.details,
+            'ip_address': self.ip_address,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None
+        }
+
+
+# ==================== TAXPAYER MODELS ====================
+class DetectedBehavior(db.Model):
+    """Detected behaviors from ML model"""
+    __tablename__ = 'detected_behaviors'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    behavior_type = db.Column(db.String(100))  # High Risk, Medium Risk, Low Risk
+    risk_score = db.Column(db.Numeric(5, 2))
+    confidence = db.Column(db.Numeric(5, 2))
+    risk_factors = db.Column(db.JSON)  # Store top risk factors
+    predictions = db.Column(db.JSON)  # Store all risk probabilities
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed = db.Column(db.Boolean, default=False)
+    notes = db.Column(db.Text)
+    
+    def to_dict(self):
+        taxpayer = Taxpayer.query.get(self.taxpayer_id)
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'taxpayer_name': taxpayer.company_name if taxpayer else 'Unknown',
+            'fiscal_year': self.fiscal_year,
+            'behavior_type': self.behavior_type,
+            'risk_score': float(self.risk_score) if self.risk_score else 0,
+            'confidence': float(self.confidence) if self.confidence else 0,
+            'risk_factors': self.risk_factors,
+            'predictions': self.predictions,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None,
+            'reviewed': self.reviewed,
+            'notes': self.notes
+        }
+
+
+class Taxpayer(db.Model):
+    """Taxpayer information"""
+    __tablename__ = 'taxpayers'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tin = db.Column(db.String(50), unique=True, nullable=False)
+    company_name = db.Column(db.String(200), nullable=False)
+    registration_date = db.Column(db.DateTime, default=datetime.utcnow)
+    industry = db.Column(db.String(100))
+    status = db.Column(db.String(20), default='Active')
+    
+    # Relationships
+    returns = db.relationship('TaxReturn', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    payments = db.relationship('Payment', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    audits = db.relationship('AuditOutcome', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    validations = db.relationship('ValidationIssue', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    behavioral_alerts = db.relationship('BehavioralAlert', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    etr_alerts = db.relationship('ETRAlert', backref='taxpayer', lazy=True, cascade='all, delete-orphan')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tin': self.tin,
+            'company_name': self.company_name,
+            'registration_date': self.registration_date.isoformat() if self.registration_date else None,
+            'industry': self.industry,
+            'status': self.status
+        }
+    
+    def get_industry_benchmark(self):
+        """Get industry benchmark for tax compliance"""
+        benchmarks = {
+            "Manufacturing": {"expected_etr": 0.22, "payment_ratio": 0.95},
+            "Banking & Finance": {"expected_etr": 0.28, "payment_ratio": 0.98},
+            "Telecommunications": {"expected_etr": 0.25, "payment_ratio": 0.97},
+            "Retail": {"expected_etr": 0.20, "payment_ratio": 0.92},
+            "Agriculture": {"expected_etr": 0.15, "payment_ratio": 0.88},
+            "Mining": {"expected_etr": 0.30, "payment_ratio": 0.96},
+            "Construction": {"expected_etr": 0.18, "payment_ratio": 0.85},
+            "Hospitality": {"expected_etr": 0.19, "payment_ratio": 0.90},
+            "Transport": {"expected_etr": 0.21, "payment_ratio": 0.89},
+            "Technology": {"expected_etr": 0.23, "payment_ratio": 0.94},
+            "Healthcare": {"expected_etr": 0.17, "payment_ratio": 0.91},
+            "Education": {"expected_etr": 0.12, "payment_ratio": 0.87},
+            "Real Estate": {"expected_etr": 0.24, "payment_ratio": 0.93},
+            "Energy": {"expected_etr": 0.26, "payment_ratio": 0.95}
+        }
+        return benchmarks.get(self.industry, {"expected_etr": 0.20, "payment_ratio": 0.90})
+
+
+class TaxReturn(db.Model):
+    """Corporate tax returns with calculation methods"""
+    __tablename__ = 'tax_returns'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    filing_date = db.Column(db.DateTime, default=datetime.utcnow)
+    total_income = db.Column(db.Numeric(15, 2))
+    taxable_income = db.Column(db.Numeric(15, 2))
+    tax_liability = db.Column(db.Numeric(15, 2))
+    accounting_profit = db.Column(db.Numeric(15, 2))
+    status = db.Column(db.String(20), default='Filed')
+    
+    __table_args__ = (db.UniqueConstraint('taxpayer_id', 'fiscal_year', name='unique_return'),)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'fiscal_year': self.fiscal_year,
+            'filing_date': self.filing_date.isoformat() if self.filing_date else None,
+            'total_income': float(self.total_income) if self.total_income else 0,
+            'taxable_income': float(self.taxable_income) if self.taxable_income else 0,
+            'tax_liability': float(self.tax_liability) if self.tax_liability else 0,
+            'accounting_profit': float(self.accounting_profit) if self.accounting_profit else 0,
+            'status': self.status
+        }
+    
+    def calculate_etr(self):
+        """Calculate Effective Tax Rate"""
+        if self.accounting_profit and self.accounting_profit > 0:
+            return float(self.tax_liability) / float(self.accounting_profit)
+        return 0.0
+
+
+class Payment(db.Model):
+    """Payment history with calculation methods"""
+    __tablename__ = 'payments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    payment_date = db.Column(db.DateTime, default=datetime.utcnow)
+    amount = db.Column(db.Numeric(15, 2))
+    payment_type = db.Column(db.String(50))
+    due_date = db.Column(db.DateTime)
+    status = db.Column(db.String(20))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'fiscal_year': self.fiscal_year,
+            'payment_date': self.payment_date.isoformat() if self.payment_date else None,
+            'amount': float(self.amount) if self.amount else 0,
+            'payment_type': self.payment_type,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'status': self.status
+        }
+    
+    def calculate_late_days(self):
+        """Calculate number of days late"""
+        if self.due_date and self.payment_date:
+            if self.payment_date > self.due_date:
+                return (self.payment_date - self.due_date).days
+        return 0
+    
+    def is_late(self):
+        """Check if payment is late"""
+        return self.payment_date > self.due_date if self.due_date else False
+    
+    
+    
+    def calculate_penalty(self):
+        """Calculate penalty for late payment"""
+        late_days = self.calculate_late_days()
+        if late_days > 0:
+            annual_rate = 0.10
+            daily_rate = annual_rate / 365
+            penalty = float(self.amount) * daily_rate * late_days
+            return penalty
+        return 0.0
+
+
+class AuditOutcome(db.Model):
+    """Previous audit outcomes"""
+    __tablename__ = 'audit_outcomes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    audit_date = db.Column(db.DateTime, default=datetime.utcnow)
+    findings = db.Column(db.Text)
+    additional_assessment = db.Column(db.Numeric(15, 2), default=0)
+    penalties = db.Column(db.Numeric(15, 2), default=0)
+    outcome = db.Column(db.String(50))
+    recommendation = db.Column(db.Text)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'audit_date': self.audit_date.isoformat() if self.audit_date else None,
+            'findings': self.findings,
+            'additional_assessment': float(self.additional_assessment) if self.additional_assessment else 0,
+            'penalties': float(self.penalties) if self.penalties else 0,
+            'outcome': self.outcome,
+            'recommendation': self.recommendation
+        }
+
+
+class ValidationIssue(db.Model):
+    """Validation issues with formula-based generation"""
+    __tablename__ = 'validation_issues'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    issue_type = db.Column(db.String(100))
+    severity = db.Column(db.String(20))
+    description = db.Column(db.Text)
+    field_name = db.Column(db.String(100))
+    expected_value = db.Column(db.String(200))
+    actual_value = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='Open')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime)
+    
+    def to_dict(self):
+        taxpayer = Taxpayer.query.get(self.taxpayer_id)
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'taxpayer_name': taxpayer.company_name if taxpayer else 'Unknown',
+            'fiscal_year': self.fiscal_year,
+            'issue_type': self.issue_type,
+            'severity': self.severity,
+            'description': self.description,
+            'field_name': self.field_name,
+            'expected_value': self.expected_value,
+            'actual_value': self.actual_value,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def validate_tax_return(tax_return, governance_indicators):
+        """Validate tax return against governance data"""
+        issues = []
+        
+        if not tax_return:
+            return issues
+        
+        # Formula 1: Check if reported income aligns with board size
+        if tax_return.total_income and governance_indicators and governance_indicators.board_size:
+            expected_income = governance_indicators.board_size * 5000000
+            actual_income = float(tax_return.total_income)
+            variance = abs(actual_income - expected_income) / expected_income if expected_income > 0 else 0
+            
+            if variance > 0.5:
+                issues.append({
+                    'issue_type': 'Income Discrepancy',
+                    'severity': 'High' if variance > 1.0 else 'Medium',
+                    'description': f'Reported income (${actual_income:,.0f}) deviates significantly from board-size expectation (${expected_income:,.0f})',
+                    'field_name': 'total_income',
+                    'expected_value': f'~${expected_income:,.0f}',
+                    'actual_value': f'${actual_income:,.0f}'
+                })
+        
+        # Formula 2: Check tax-to-income ratio
+        if tax_return.total_income and tax_return.tax_liability:
+            tax_ratio = float(tax_return.tax_liability) / float(tax_return.total_income)
+            expected_ratio = 0.25
+            
+            if tax_ratio < 0.15:
+                issues.append({
+                    'issue_type': 'Low Tax Burden',
+                    'severity': 'High',
+                    'description': f'Tax-to-income ratio ({tax_ratio:.1%}) is significantly below expected ({expected_ratio:.0%})',
+                    'field_name': 'tax_liability',
+                    'expected_value': f'~{expected_ratio:.0%} of income',
+                    'actual_value': f'{tax_ratio:.1%}'
+                })
+            elif tax_ratio > 0.35:
+                issues.append({
+                    'issue_type': 'High Tax Burden',
+                    'severity': 'Medium',
+                    'description': f'Tax-to-income ratio ({tax_ratio:.1%}) is above expected ({expected_ratio:.0%})',
+                    'field_name': 'tax_liability',
+                    'expected_value': f'~{expected_ratio:.0%} of income',
+                    'actual_value': f'{tax_ratio:.1%}'
+                })
+        
+        return issues
+
+
+class BehavioralAlert(db.Model):
+    """Behavioral analytics alerts with formula-based detection"""
+    __tablename__ = 'behavioral_alerts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    alert_type = db.Column(db.String(100))
+    severity = db.Column(db.String(20))
+    description = db.Column(db.Text)
+    confidence_score = db.Column(db.Numeric(5, 2))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='New')
+    
+    def to_dict(self):
+        taxpayer = Taxpayer.query.get(self.taxpayer_id)
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'taxpayer_name': taxpayer.company_name if taxpayer else 'Unknown',
+            'fiscal_year': self.fiscal_year,
+            'alert_type': self.alert_type,
+            'severity': self.severity,
+            'description': self.description,
+            'confidence_score': float(self.confidence_score) if self.confidence_score else 0,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def analyze_payment_behavior(payments, tax_return):
+        """Analyze payment behavior and generate alerts"""
+        alerts = []
+        
+        if not payments:
+            return alerts
+        
+        # Formula 1: Late payment frequency
+        late_payments = [p for p in payments if p.is_late()]
+        if late_payments:
+            late_percentage = len(late_payments) / len(payments) * 100
+            avg_late_days = sum(p.calculate_late_days() for p in late_payments) / len(late_payments)
+            
+            if late_percentage > 50:
+                confidence = 0.85
+                severity = 'High'
+                description = f'Persistent late payments: {len(late_payments)} of {len(payments)} payments late (avg {avg_late_days:.0f} days)'
+            elif late_percentage > 25:
+                confidence = 0.65
+                severity = 'Medium'
+                description = f'Frequent late payments: {len(late_payments)} of {len(payments)} payments late'
+            else:
+                confidence = 0.40
+                severity = 'Low'
+                description = f'Occasional late payments detected'
+            
+            alerts.append({
+                'alert_type': 'Delayed Payment Pattern',
+                'severity': severity,
+                'description': description,
+                'confidence_score': confidence
+            })
+        
+        # Formula 2: Underpayment detection
+        if tax_return and tax_return.tax_liability:
+            total_paid = sum(float(p.amount) for p in payments)
+            expected_payment = float(tax_return.tax_liability)
+            
+            if total_paid < expected_payment * 0.8:
+                underpayment = expected_payment - total_paid
+                alerts.append({
+                    'alert_type': 'Significant Underpayment',
+                    'severity': 'High',
+                    'description': f'Total payments (${total_paid:,.0f}) are {underpayment:,.0f} ({(1 - total_paid/expected_payment)*100:.0f}%) below expected liability',
+                    'confidence_score': 0.90
+                })
+            elif total_paid < expected_payment * 0.95:
+                underpayment = expected_payment - total_paid
+                alerts.append({
+                    'alert_type': 'Minor Underpayment',
+                    'severity': 'Medium',
+                    'description': f'Payment shortfall of ${underpayment:,.0f} detected',
+                    'confidence_score': 0.65
+                })
+        
+        return alerts
+    
+# Define the same feature engineering class as in your notebook
+class BehavioralRiskModel:
+    """ML Model to detect risky tax behaviors - Prediction only"""
+    
+    REQUIRED_COLUMNS = [
+        'Revenue', 'Expenses', 'Profit', 'Tax_Liability', 'Tax_Paid',
+        'Late_Filings', 'Compliance_Violations', 'Tax_Compliance_Ratio',
+        'Audit_Findings', 'Audit_to_Tax_Ratio'
+    ]
+    
+    SELECTED_FEATURES = [
+        'profit_margin', 'tax_burden', 'expense_ratio', 'payment_gap',
+        'compliance_score', 'late_filing_penalty', 'violation_penalty',
+        'audit_risk', 'tax_avoidance_index', 'Late_Filings',
+        'Compliance_Violations', 'Audit_Findings'
+    ]
+    
+    def __init__(self, model_path=None):
+        if model_path is None:
+            model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                      'models', 'behavioral_model.pkl')
+        self.model_path = model_path
+        self.model = None
+        self.scaler = None
+        self.feature_names = None
+        self.label_encoder = None
+        self.load_model()
+    
+    def prepare_features(self, df):
+        """Engineer features from raw data - same as training"""
+        features = df.copy()
+        
+        for col in self.REQUIRED_COLUMNS:
+            if col not in features.columns:
+                features[col] = 0
+        
+        features['profit_margin'] = features['Profit'] / (features['Revenue'] + 1)
+        features['tax_burden'] = features['Tax_Liability'] / (features['Revenue'] + 1)
+        features['expense_ratio'] = features['Expenses'] / (features['Revenue'] + 1)
+        features['payment_gap'] = (features['Tax_Liability'] - features['Tax_Paid']) / (features['Tax_Liability'] + 1)
+        features['compliance_score'] = features['Tax_Compliance_Ratio']
+        features['late_filing_penalty'] = features['Late_Filings'] * 0.1
+        features['violation_penalty'] = features['Compliance_Violations'] * 0.15
+        features['audit_risk'] = features['Audit_Findings'] / (features['Audit_to_Tax_Ratio'] + 1)
+        features['tax_avoidance_index'] = abs(features['Tax_Compliance_Ratio'] - 1)
+        
+        available = [f for f in self.SELECTED_FEATURES if f in features.columns]
+        return features[available].fillna(0)
+    
+    def load_model(self):
+        """Load pre-trained model"""
+        try:
+            if not os.path.exists(self.model_path):
+                print(f"Model not found at {self.model_path}. Please train first using the notebook.")
+                return False
+            
+            artifact = joblib.load(self.model_path)
+            self.model = artifact['model']
+            self.scaler = artifact['scaler']
+            self.feature_names = artifact['feature_names']
+            self.label_encoder = artifact['label_encoder']
+            print(f"✅ Model loaded from {self.model_path}")
+            return True
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            return False
+    
+    def predict(self, company_data):
+        """Predict behavior risk for a single company"""
+        if self.model is None:
+            raise ValueError("Model not loaded. Please ensure model exists at: " + self.model_path)
+        
+        # Prepare features
+        df = pd.DataFrame([company_data])
+        X = self.prepare_features(df)
+        
+        # Ensure all features exist
+        for feature in self.feature_names:
+            if feature not in X.columns:
+                X[feature] = 0
+        X = X[self.feature_names]
+        
+        # Scale
+        X_scaled = self.scaler.transform(X)
+        
+        # Predict
+        proba = self.model.predict_proba(X_scaled)[0]
+        pred_class = self.model.predict(X_scaled)[0]
+        risk_level = self.label_encoder.inverse_transform([pred_class])[0]
+        confidence = max(proba) * 100
+        
+        # Get top risk factors
+        feature_importance = dict(zip(self.feature_names, self.model.feature_importances_))
+        risk_factors = []
+        for i, feature in enumerate(self.feature_names):
+            abs_deviation = abs(X_scaled[0][i])
+            if abs_deviation > 0.5:  # More than 0.5 standard deviation from mean
+                risk_factors.append({
+                    'feature': feature,
+                    'value': float(company_data.get(feature, X.iloc[0][i])),
+                    'importance': feature_importance[feature],
+                    'deviation': round(abs_deviation, 4)
+                })
+        
+        risk_factors.sort(key=lambda x: x['importance'], reverse=True)
+        
+        return {
+            'risk_level': risk_level,
+            'confidence': round(confidence, 2),
+            'risk_score': proba[pred_class] * 100,
+            'risk_probabilities': {
+                self.label_encoder.classes_[i]: round(p * 100, 2) 
+                for i, p in enumerate(proba)
+            },
+            'top_risk_factors': risk_factors[:5]
+        }
+
+
+
+class ETRAlert(db.Model):
+    """Effective Tax Rate alerts with formula-based calculation"""
+    __tablename__ = 'etr_alerts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    taxpayer_id = db.Column(db.Integer, db.ForeignKey('taxpayers.id'), nullable=False)
+    fiscal_year = db.Column(db.Integer, nullable=False)
+    computed_etr = db.Column(db.Numeric(5, 2))
+    statutory_rate = db.Column(db.Numeric(5, 2))
+    variance = db.Column(db.Numeric(5, 2))
+    alert_type = db.Column(db.String(50))
+    severity = db.Column(db.String(20))
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='New')
+    
+    def to_dict(self):
+        taxpayer = Taxpayer.query.get(self.taxpayer_id)
+        return {
+            'id': self.id,
+            'taxpayer_id': self.taxpayer_id,
+            'taxpayer_name': taxpayer.company_name if taxpayer else 'Unknown',
+            'fiscal_year': self.fiscal_year,
+            'computed_etr': float(self.computed_etr) if self.computed_etr else 0,
+            'statutory_rate': float(self.statutory_rate) if self.statutory_rate else 25,
+            'variance': float(self.variance) if self.variance else 0,
+            'alert_type': self.alert_type,
+            'severity': self.severity,
+            'description': self.description,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @staticmethod
+    def calculate_etr_alert(tax_return, governance_indicators, industry_benchmark):
+        """Calculate ETR and determine if alert is needed"""
+        
+        if not tax_return or not tax_return.accounting_profit or tax_return.accounting_profit <= 0:
+            return None
+        
+        # Formula 1: Calculate ETR
+        etr = float(tax_return.tax_liability) / float(tax_return.accounting_profit)
+        statutory_rate = 0.25
+        variance = etr - statutory_rate
+        
+        # Formula 2: Get industry benchmark
+        expected_etr = industry_benchmark.get('expected_etr', 0.20)
+        industry_variance = etr - expected_etr
+        
+        # Determine alert based on multiple factors
+        alert_type = None
+        severity = None
+        description = None
+        
+        # Formula 3: High risk aggressive avoidance
+        if etr < statutory_rate * 0.6:
+            severity = 'High'
+            alert_type = 'HIGH_RISK_AGGRESSIVE_AVOIDANCE'
+            description = f'ETR of {etr:.1%} is exceptionally low (only {etr/statutory_rate:.0%} of statutory rate)'
+            
+            if governance_indicators and governance_indicators.independence_ratio and governance_indicators.independence_ratio < 30:
+                description += '. Weak board independence increases risk of aggressive tax planning.'
+        
+        # Formula 4: Medium risk - uncertain
+        elif etr < statutory_rate * 0.8:
+            severity = 'Medium'
+            alert_type = 'LOW_ETR_UNCERTAIN'
+            description = f'ETR of {etr:.1%} is below statutory rate of {statutory_rate:.0%}'
+            
+            if industry_variance < -0.05:
+                description += f' Also {abs(industry_variance):.1%} below industry average of {expected_etr:.1%}.'
+        
+        # Formula 5: High ETR - possible overpayment
+        elif etr > statutory_rate * 1.2:
+            severity = 'Low'
+            alert_type = 'HIGH_ETR'
+            description = f'ETR of {etr:.1%} is above statutory rate, suggesting possible overpayment'
+        
+        if alert_type:
+            return {
+                'computed_etr': etr * 100,
+                'statutory_rate': statutory_rate * 100,
+                'variance': variance * 100,
+                'alert_type': alert_type,
+                'severity': severity,
+                'description': description
+            }
+        
+        return None
+
+
+class ComplianceReport(db.Model):
+    """Generated compliance reports"""
+    __tablename__ = 'compliance_reports'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    report_type = db.Column(db.String(50))
+    fiscal_year = db.Column(db.Integer)
+    generated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    data = db.Column(db.JSON)
+    file_path = db.Column(db.String(500))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'report_type': self.report_type,
+            'fiscal_year': self.fiscal_year,
+            'generated_at': self.generated_at.isoformat() if self.generated_at else None,
+            'file_path': self.file_path
+        }
