@@ -26,17 +26,33 @@ def create_app(config_object=None):
         os.makedirs(instance_path)
         print(f"📁 Created instance directory: {instance_path}")
     
-    # Configuration
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(instance_path, 'forensic.db')}"
+    # ============================================
+    # DATABASE CONFIGURATION - READ FROM ENVIRONMENT
+    # ============================================
+    
+    # Check for PostgreSQL DATABASE_URL from Render
+    database_url = os.environ.get('DATABASE_URL')
+    
+    if database_url:
+        # Convert postgres:// to postgresql:// for SQLAlchemy
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        print(f"✅ Using PostgreSQL database")
+    else:
+        # Fallback to SQLite for local development
+        app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(instance_path, 'forensic.db')}"
+        print(f"🗄️  Using SQLite database (local development): {app.config['SQLALCHEMY_DATABASE_URI']}")
+    
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SQLALCHEMY_ECHO'] = True
-    app.config['SECRET_KEY'] = secrets.token_hex(32)
-    app.config['SESSION_COOKIE_SECURE'] = False
-    app.config['REMEMBER_COOKIE_SECURE'] = False
+    app.config['SQLALCHEMY_ECHO'] = os.environ.get('SQLALCHEMY_ECHO', 'False').lower() == 'true'
+    
+    # Security configuration
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+    app.config['REMEMBER_COOKIE_SECURE'] = os.environ.get('REMEMBER_COOKIE_SECURE', 'False').lower() == 'true'
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
-    
-    print(f"🗄️  Database: {app.config['SQLALCHEMY_DATABASE_URI']}")
     
     # Initialize extensions with app
     db.init_app(app)
@@ -53,6 +69,42 @@ def create_app(config_object=None):
         import traceback
         traceback.print_exc()
     
+    # ==================== TEMPORARY DATABASE INITIALIZATION ROUTES ====================
+    # Remove these after running once!
+    
+    @app.route('/init-db')
+    def init_db_route():
+        """Initialize database tables via browser"""
+        try:
+            db.create_all()
+            return "✅ Database tables created successfully! You can now remove this endpoint."
+        except Exception as e:
+            return f"❌ Error: {e}"
+    
+    @app.route('/seed-data')
+    def seed_data_route():
+        """Seed sample data via browser"""
+        try:
+            from blueprints.governance.models import GovernanceRaw
+            
+            if GovernanceRaw.query.count() > 0:
+                return "⚠️ Data already exists. Skipping seed."
+            
+            sample_data = [
+                {'taxpayer_id': 1, 'fiscal_year': 2024, 'board_size': 7, 'independent_directors': 3, 'financial_experts': 2, 'female_directors': 1, 'ceo_duality': True, 'source': 'TaRMS'},
+                {'taxpayer_id': 2, 'fiscal_year': 2024, 'board_size': 9, 'independent_directors': 5, 'financial_experts': 4, 'female_directors': 3, 'ceo_duality': False, 'source': 'TaRMS'},
+                {'taxpayer_id': 3, 'fiscal_year': 2024, 'board_size': 5, 'independent_directors': 1, 'financial_experts': 1, 'female_directors': 0, 'ceo_duality': True, 'source': 'AnnualReport'},
+            ]
+            
+            for data in sample_data:
+                raw = GovernanceRaw(**data)
+                db.session.add(raw)
+            
+            db.session.commit()
+            return f"✅ Seeded {len(sample_data)} governance records successfully!"
+        except Exception as e:
+            return f"❌ Error seeding data: {e}"
+    
     # ==================== PAGE ROUTES ====================
     
     @app.route('/')
@@ -68,9 +120,7 @@ def create_app(config_object=None):
     @app.route('/logout')
     def logout():
         """Logout endpoint - clears session and redirects to login"""
-        # Create response that redirects to login
         response = redirect(url_for('login_page'))
-        # Delete the session cookie
         response.delete_cookie('session_token')
         return response
 
@@ -134,11 +184,9 @@ def create_app(config_object=None):
         except Exception as e:
             return jsonify([]), 200
     
-    
     @app.route('/api/v1/user/info', methods=['GET'])
     def get_user_info():
-        """Get current user information (simplified for frontend)"""
-        # Return demo user info since authentication is handled by frontend
+        """Get current user information"""
         return jsonify({
             'id': 1,
             'username': 'admin',
@@ -163,7 +211,6 @@ def create_app(config_object=None):
             
             alerts = []
             
-            # Get recent behavioral alerts
             behavioral = BehavioralAlert.query.order_by(
                 BehavioralAlert.created_at.desc()
             ).limit(3).all()
@@ -179,7 +226,6 @@ def create_app(config_object=None):
                     'type': 'behavioral'
                 })
             
-            # Get recent validation issues
             validations = ValidationIssue.query.order_by(
                 ValidationIssue.created_at.desc()
             ).limit(2).all()
@@ -267,10 +313,11 @@ def create_app(config_object=None):
     
     @app.route('/health')
     def health_check():
+        database_type = 'PostgreSQL' if os.environ.get('DATABASE_URL') else 'SQLite'
         return {
             'status': 'healthy', 
             'service': 'CTCMS - Governance Module',
-            'database': 'SQLite'
+            'database': database_type
         }, 200
     
     return app

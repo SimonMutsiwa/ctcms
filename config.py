@@ -7,17 +7,22 @@ import os
 from datetime import timedelta
 
 class Config:
-    """Base configuration"""
+    """Base configuration - reads DATABASE_URL from environment"""
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
     
-    # Database configuration
-    DATABASE_URL = os.environ.get('DATABASE_URL')
+    # ============================================
+    # DATABASE CONFIGURATION - CRITICAL FOR RENDER
+    # ============================================
     
-    if DATABASE_URL:
+    # Get DATABASE_URL from environment variable (Render sets this)
+    database_url = os.environ.get('DATABASE_URL')
+    
+    if database_url:
         # Render provides 'postgres://', SQLAlchemy needs 'postgresql://'
-        if DATABASE_URL.startswith('postgres://'):
-            DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-        SQLALCHEMY_DATABASE_URI = DATABASE_URL
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        SQLALCHEMY_DATABASE_URI = database_url
+        print(f"✅ Using PostgreSQL database")
     else:
         # Fallback to SQLite for local development
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +30,7 @@ class Config:
         if not os.path.exists(INSTANCE_DIR):
             os.makedirs(INSTANCE_DIR)
         SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(INSTANCE_DIR, 'forensic.db')}"
+        print("⚠️ DATABASE_URL not set, using SQLite (local development only)")
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = os.environ.get('SQLALCHEMY_ECHO', 'False').lower() == 'true'
