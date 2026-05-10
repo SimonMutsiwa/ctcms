@@ -7,7 +7,6 @@ import sys
 # Add the current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import the create_app function
 from __init__ import create_app
 from config import config
 
